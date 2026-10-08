@@ -48,7 +48,12 @@ export default function RootLayout({
       <head>
         <ThemeScript />
       </head>
-      <body>
+      {/* Browser extensions -- Grammarly, password managers, translators --
+          add their own attributes to <body> before React hydrates, which
+          React reports as a mismatch the app cannot fix. The flag applies to
+          this element's own attributes only, one level deep, so a genuine
+          mismatch anywhere inside the app is still reported. */}
+      <body suppressHydrationWarning>
         {/* First stop for keyboard users (PRD section 112). */}
         <a
           href="#main"
