@@ -57,6 +57,12 @@ ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", "") or ["*"]
 # looking, means a new account can be created and then never signed in to.
 # Signup looks broken and the cause is three services away.
 
+# Verification stays mandatory by default, matching production. Set
+# ACCOUNT_EMAIL_VERIFICATION=optional while no mail provider is configured, so
+# a new account is usable immediately; `manage.py verify_email <address>`
+# confirms an account that already exists.
+ACCOUNT_EMAIL_VERIFICATION = os.environ.get("ACCOUNT_EMAIL_VERIFICATION", "mandatory")
+
 if os.environ.get("EMAIL_HOST"):
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
     EMAIL_HOST = os.environ["EMAIL_HOST"]

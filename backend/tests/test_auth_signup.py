@@ -108,3 +108,56 @@ def test_signing_up_twice_does_not_confirm_the_address_exists(api_client: Any) -
 
     assert second.status_code == first.status_code
     assert User.objects.filter(email="taken@example.test").count() == 1
+
+
+# --------------------------------------------------------------------------- #
+# The development-only verify_email command
+# --------------------------------------------------------------------------- #
+
+
+def test_verify_email_command_lets_an_account_sign_in(api_client: Any, settings: Any) -> None:
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    # The command refuses to run otherwise, which is the point of the next test.
+    settings.DEBUG = True
+
+    api_client.post(
+        SIGNUP_URL,
+        {"email": "pending@example.test", "password": "a-long-enough-passphrase"},
+        format="json",
+    )
+    api_client.delete("/auth/browser/v1/auth/session")
+
+    call_command("verify_email", "pending@example.test", stdout=StringIO())
+
+    login = api_client.post(
+        "/auth/browser/v1/auth/login",
+        {"email": "pending@example.test", "password": "a-long-enough-passphrase"},
+        format="json",
+    )
+    assert login.status_code == 200
+
+
+def test_verify_email_command_refuses_to_run_in_production(settings: Any) -> None:
+    """Marking any address verified is account takeover for anyone who knows it."""
+    from io import StringIO
+
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+
+    settings.DEBUG = False
+    with pytest.raises(CommandError, match="DEBUG"):
+        call_command("verify_email", "anyone@example.test", stdout=StringIO())
+
+
+def test_verify_email_command_rejects_an_unknown_address(settings: Any) -> None:
+    from io import StringIO
+
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+
+    settings.DEBUG = True
+    with pytest.raises(CommandError, match="No account found"):
+        call_command("verify_email", "nobody@example.test", stdout=StringIO())

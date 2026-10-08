@@ -140,6 +140,21 @@ export async function primeCsrf(): Promise<void> {
   }
 }
 
+/**
+ * Redeem the key from a confirmation email.
+ *
+ * On success allauth signs the user in, so there is nothing further to do
+ * besides send them on.
+ */
+export function verifyEmail(key: string): Promise<AuthResponse> {
+  return authFetch("/auth/email/verify", "POST", { key });
+}
+
+/** Ask for another confirmation email, for a link that has expired. */
+export function resendVerification(email: string): Promise<AuthResponse> {
+  return authFetch("/auth/email/verify/resend", "POST", { email });
+}
+
 export function login(email: string, password: string): Promise<AuthResponse> {
   return authFetch("/auth/login", "POST", { email, password });
 }
