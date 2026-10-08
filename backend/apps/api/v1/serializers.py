@@ -1,0 +1,217 @@
+"""v1 serializers.
+
+Serializers validate and shape; they do not contain business rules. Anything
+with a rule behind it delegates to a service module.
+
+No serializer exposes a primary key. ``public_id`` is the only identifier that
+crosses the API boundary.
+"""
+
+from __future__ import annotations
+
+from rest_framework import serializers
+
+from apps.accounts.models import User
+from apps.audit.models import AuditLog
+from apps.billing.models import CreditEntry, Plan, Subscription
+from apps.organizations.models import Invitation, Membership, Organization, Workspace
+from apps.organizations.roles import Role, capabilities_for
+
+
+class UserSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    full_name = serializers.CharField(source="get_full_name", read_only=True)
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "email",
+            "first_name",
+            "last_name",
+            "full_name",
+            "locale",
+            "timezone",
+            "date_joined",
+        ]
+        read_only_fields = ["id", "email", "date_joined"]
+
+
+class OrganizationSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="public_id", read_only=True)
+
+    class Meta:
+        model = Organization
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "country",
+            "default_currency",
+            "timezone",
+            "website",
+            "created_at",
+        ]
+        read_only_fields = ["id", "slug", "created_at"]
+
+
+class OrganizationCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=200)
+    country = serializers.CharField(max_length=2, required=False, allow_blank=True)
+    default_currency = serializers.CharField(max_length=3, required=False, allow_blank=True)
+    timezone = serializers.CharField(max_length=64, required=False, allow_blank=True)
+    website = serializers.URLField(required=False, allow_blank=True)
+
+
+class WorkspaceSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="public_id", read_only=True)
+
+    class Meta:
+        model = Workspace
+        fields = ["id", "name", "slug", "is_default", "country", "timezone", "created_at"]
+        read_only_fields = ["id", "slug", "created_at"]
+
+
+class MembershipSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    user = UserSerializer(read_only=True)
+    capabilities = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Membership
+        fields = ["id", "user", "role", "is_active", "joined_at", "capabilities"]
+        read_only_fields = ["id", "user", "is_active", "joined_at"]
+
+    def get_capabilities(self, obj: Membership) -> list[str]:
+        return sorted(capabilities_for(obj.role))
+
+
+class MembershipRoleSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(choices=Role.choices)
+
+
+class MembershipSummarySerializer(serializers.ModelSerializer):
+    """The membership list returned by /me, used by the workspace switcher."""
+
+    organization = OrganizationSerializer(read_only=True)
+    capabilities = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Membership
+        fields = ["organization", "role", "capabilities"]
+
+    def get_capabilities(self, obj: Membership) -> list[str]:
+        return sorted(capabilities_for(obj.role))
+
+
+class InvitationSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    invited_by = serializers.EmailField(source="invited_by.email", read_only=True, default=None)
+    is_pending = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Invitation
+        fields = [
+            "id",
+            "email",
+            "role",
+            "invited_by",
+            "expires_at",
+            "accepted_at",
+            "revoked_at",
+            "is_pending",
+            "created_at",
+        ]
+        # token_hash is deliberately absent: it never leaves the database.
+        read_only_fields = ["id", "expires_at", "accepted_at", "revoked_at", "created_at"]
+
+
+class InvitationCreateSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    role = serializers.ChoiceField(choices=Role.choices, default=Role.VIEWER)
+
+
+class InvitationAcceptSerializer(serializers.Serializer):
+    token = serializers.CharField(max_length=200, trim_whitespace=True)
+
+
+class AuditLogSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="public_id", read_only=True)
+
+    class Meta:
+        model = AuditLog
+        fields = [
+            "id",
+            "action",
+            "actor_email",
+            "target_type",
+            "target_id",
+            "target_label",
+            "metadata",
+            "ip_address",
+            "request_id",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class PlanSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="public_id", read_only=True)
+
+    class Meta:
+        model = Plan
+        fields = [
+            "id",
+            "tier",
+            "name",
+            "description",
+            "monthly_price_minor",
+            "currency",
+            "included_credits",
+            "max_seats",
+            "max_workspaces",
+            "max_prospects_per_month",
+        ]
+        read_only_fields = fields
+
+
+class SubscriptionSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    plan = PlanSerializer(read_only=True)
+
+    class Meta:
+        model = Subscription
+        fields = [
+            "id",
+            "plan",
+            "status",
+            "seats",
+            "currency",
+            "current_period_start",
+            "current_period_end",
+            "trial_ends_at",
+        ]
+        read_only_fields = fields
+
+
+class CreditEntrySerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="public_id", read_only=True)
+
+    class Meta:
+        model = CreditEntry
+        fields = ["id", "amount", "reason", "description", "feature", "created_at"]
+        read_only_fields = fields
+
+
+class CreditBalanceSerializer(serializers.Serializer):
+    balance = serializers.IntegerField(read_only=True)
+
+
+class MeSerializer(serializers.Serializer):
+    """Everything the SPA needs on boot: identity, orgs, and active context."""
+
+    user = UserSerializer(read_only=True)
+    memberships = MembershipSummarySerializer(many=True, read_only=True)
+    active_organization = OrganizationSerializer(read_only=True, allow_null=True)
+    active_role = serializers.CharField(read_only=True, allow_null=True)
+    active_capabilities = serializers.ListField(child=serializers.CharField(), read_only=True)

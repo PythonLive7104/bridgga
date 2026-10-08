@@ -1,0 +1,29 @@
+FROM python:3.13-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# Build tools are needed for argon2-cffi and psycopg; they are installed and
+# removed in one layer so they do not ship in the image.
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y build-essential libpq-dev curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements/ /app/requirements/
+RUN pip install --upgrade pip && pip install -r requirements/dev.txt
+
+COPY backend/ /app/
+
+# Run as a non-root user: a container that does not need root should not have it.
+RUN useradd --create-home --uid 10001 appuser && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS http://localhost:8000/healthz || exit 1
+
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]

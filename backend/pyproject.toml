@@ -1,0 +1,76 @@
+[project]
+name = "palatial-backend"
+version = "0.1.0"
+description = "AI Customer Acquisition OS - Django backend"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".venv", "migrations", "staticfiles"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "C4",   # comprehensions
+    "DJ",   # flake8-django
+    "S",    # bandit
+    "RUF",
+]
+ignore = [
+    "S101",   # assert: pytest uses it
+    "B008",   # function call in default arg: Django/DRF idiom
+    "RUF012", # mutable class attrs need ClassVar: noisy on Django Meta
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Hardcoded credentials in tests and in the test settings module are the point.
+"tests/*" = ["S105", "S106", "S107", "S311"]
+"config/settings/test.py" = ["F403", "F405", "S105"]
+"*/migrations/*" = ["E501"]
+"config/settings/*" = ["F403", "F405"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["apps", "config"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
+strict_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = false
+disallow_untyped_defs = false
+ignore_missing_imports = true
+exclude = ["migrations/", ".venv/"]
+
+[tool.django-stubs]
+django_settings_module = "config.settings.test"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.test"
+python_files = ["test_*.py", "tests.py"]
+testpaths = ["tests", "apps"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+]
+markers = [
+    "tenancy: asserts cross-tenant isolation",
+    "security: asserts an authorisation or injection control",
+]
+filterwarnings = [
+    "error::DeprecationWarning:apps.*",
+]
+
+[tool.coverage.run]
+source = ["apps"]
+omit = ["*/migrations/*", "*/tests/*", "*/admin.py", "*/apps.py"]
+
+[tool.coverage.report]
+skip_covered = false
+show_missing = true

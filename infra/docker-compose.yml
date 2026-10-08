@@ -1,0 +1,109 @@
+# Local development stack. The backend falls back to SQLite and in-process
+# Celery when DATABASE_URL / REDIS_URL are unset, so this file is how you get
+# the real Postgres and Redis behaviour that CI and production use.
+name: palatial
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: palatial
+      POSTGRES_PASSWORD: palatial
+      POSTGRES_DB: palatial
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U palatial"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Catches outbound mail locally so account verification can be tested
+  # without a real provider. UI on http://localhost:8025
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  # S3-compatible storage, so the storage backend is exercised locally rather
+  # than only in production. Console on http://localhost:9001
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: palatial
+      MINIO_ROOT_PASSWORD: palatial-dev-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  backend:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.backend
+    command: python manage.py runserver 0.0.0.0:8000
+    environment: &backend_env
+      DJANGO_SETTINGS_MODULE: config.settings.dev
+      DJANGO_SECRET_KEY: docker-dev-secret
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0,backend
+      DATABASE_URL: postgres://palatial:palatial@postgres:5432/palatial
+      REDIS_URL: redis://redis:6379/0
+      FRONTEND_URL: http://localhost:3000
+      EMAIL_HOST: mailhog
+      EMAIL_PORT: "1025"
+    volumes:
+      - ../backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.backend
+    command: celery -A config worker -l info -Q default,crawl,enrich,ai,send,analytics
+    environment: *backend_env
+    volumes:
+      - ../backend:/app
+    depends_on:
+      - backend
+      - redis
+
+  beat:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.backend
+    command: celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    environment: *backend_env
+    volumes:
+      - ../backend:/app
+    depends_on:
+      - backend
+      - redis
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
