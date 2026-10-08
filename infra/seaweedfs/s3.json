@@ -1,0 +1,22 @@
+{
+  "_comment": [
+    "SeaweedFS S3 gateway identities for local development only.",
+    "These credentials are the AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY the",
+    "backend sends; they are deliberately committed and must never be reused",
+    "anywhere reachable from outside a developer's machine.",
+    "Anonymous access is not configured, so an unauthenticated request is",
+    "refused -- the same way a real bucket behaves."
+  ],
+  "identities": [
+    {
+      "name": "bridgga",
+      "credentials": [
+        {
+          "accessKey": "bridgga",
+          "secretKey": "bridgga-dev-secret"
+        }
+      ],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

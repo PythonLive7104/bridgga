@@ -1,30 +1,86 @@
-# Local development stack. The backend falls back to SQLite and in-process
-# Celery when DATABASE_URL / REDIS_URL are unset, so this file is how you get
-# the real Postgres and Redis behaviour that CI and production use.
-name: palatial
+# Local development stack.
+#
+#   docker compose -f infra/docker-compose.yml up --build
+#
+#   web       http://localhost:3000
+#   api       http://localhost:8000      (the app reaches it through web's proxy)
+#   mail      http://localhost:8025      (MailHog: verification and invite mail)
+#   storage   http://localhost:8888      (SeaweedFS filer: browse uploads)
+#   queues    http://localhost:5555      (Flower)
+#
+# The backend falls back to SQLite and in-process Celery when DATABASE_URL and
+# REDIS_URL are unset, so this file is how you get the Postgres and Redis
+# behaviour that CI and production actually use.
+#
+# Credentials below are development-only and intentionally committed. Anything
+# real goes in infra/.env, which is gitignored and read automatically.
+name: bridgga
+
+# Shared backend environment. RUN_MIGRATIONS is deliberately *not* here: it is
+# set per service, because only one container may migrate (see below).
+x-backend-env: &backend_env
+  DJANGO_SETTINGS_MODULE: config.settings.dev
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-docker-dev-secret-not-for-production}
+  DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0,backend
+  DATABASE_URL: postgresql://${POSTGRES_USER:-bridgga}:${POSTGRES_PASSWORD:-bridgga}@db:5432/${POSTGRES_DB:-bridgga}
+  REDIS_URL: redis://redis:6379/0
+  # Links in outbound mail. The browser resolves these, so this is the
+  # host-visible address rather than a compose service name.
+  FRONTEND_URL: http://localhost:3000
+  CSRF_TRUSTED_ORIGINS: http://localhost:3000,http://localhost:8000
+  EMAIL_HOST: mailhog
+  EMAIL_PORT: "1025"
+  AWS_S3_ENDPOINT_URL: http://storage:8333
+  AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-bridgga}
+  AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-bridgga-dev-secret}
+  AWS_STORAGE_BUCKET_NAME: ${AWS_STORAGE_BUCKET_NAME:-bridgga-dev}
+  # Unset keys mean the stub AI provider: schema-valid placeholders, no spend.
+  # Put real keys in infra/.env.
+  AI_PROVIDER: ${AI_PROVIDER:-stub}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+x-backend-build: &backend_build
+  context: ..
+  dockerfile: infra/Dockerfile.backend
+  target: dev
+
+# Source by bind mount, so an edit on the host is live in the container. The
+# anonymous volume over .venv keeps the host's Windows virtualenv from
+# shadowing the Linux packages installed in the image.
+x-backend-volumes: &backend_volumes
+  - ../backend:/app
+  - /app/.venv
+
+x-env-file: &env_file
+  - path: .env
+    required: false
 
 services:
-  postgres:
+  db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: palatial
-      POSTGRES_PASSWORD: palatial
-      POSTGRES_DB: palatial
+      POSTGRES_USER: ${POSTGRES_USER:-bridgga}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bridgga}
+      POSTGRES_DB: ${POSTGRES_DB:-bridgga}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U palatial"]
+      # -d as well as -U: without the database name, pg_isready reports ready
+      # while initdb is still creating it, and dependents start into an error.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bridgga} -d ${POSTGRES_DB:-bridgga}"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 12
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -32,78 +88,182 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
 
-  # Catches outbound mail locally so account verification can be tested
-  # without a real provider. UI on http://localhost:8025
+  # Catches outbound mail locally, so email verification, password reset and
+  # team invitations can be walked end to end without a real provider and
+  # without a sending reputation to protect.
   mailhog:
     image: mailhog/mailhog:latest
     ports:
       - "1025:1025"
       - "8025:8025"
+    restart: unless-stopped
 
-  # S3-compatible storage, so the storage backend is exercised locally rather
-  # than only in production. Console on http://localhost:9001
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: palatial
-      MINIO_ROOT_PASSWORD: palatial-dev-secret
-    ports:
-      - "9000:9000"
-      - "9001:9001"
+  # S3-compatible storage, so django-storages is exercised locally rather than
+  # only in production, where a storage misconfiguration costs the most to find.
+  #
+  # SeaweedFS rather than MinIO: MinIO deleted its community images from Docker
+  # Hub in September 2026 after archiving the repository, and the last free
+  # release carries an unpatched authentication bypass (CVE-2026-40344, CVSS
+  # 8.8) whose fix ships only in the paid product. A pinned mirror would be a
+  # known-vulnerable service listening on a developer's machine.
+  storage:
+    image: chrislusf/seaweedfs:latest
+    # One process running master, volume, filer and the S3 gateway. Fine for
+    # development; production uses a real object store, which is why the
+    # endpoint is a setting rather than a hardcoded address.
+    command: server -dir=/data -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -master.volumeSizeLimitMB=1024
     volumes:
-      - minio_data:/data
+      - storage_data:/data
+      - ./seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    ports:
+      - "8333:8333"   # S3 API
+      - "9333:9333"   # master UI
+      - "8888:8888"   # filer UI -- browse what the app uploaded
+    healthcheck:
+      # 127.0.0.1 and not localhost: in this image localhost resolves to ::1
+      # first, and the master binds IPv4 only, so the check would fail
+      # against a perfectly healthy server.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9333/cluster/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  # Creates the bucket, then exits. Without it the first upload fails against
+  # a bucket nobody remembered to make.
+  storage-init:
+    image: amazon/aws-cli:latest
+    depends_on:
+      storage:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-bridgga}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-bridgga-dev-secret}
+      AWS_DEFAULT_REGION: us-east-1
+      BUCKET: ${AWS_STORAGE_BUCKET_NAME:-bridgga-dev}
+    # The retry loop is not belt-and-braces: the master reports healthy before
+    # the S3 gateway has finished binding, so the first call usually 503s.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        for i in $$(seq 1 30); do
+          if aws --endpoint-url http://storage:8333 s3 mb "s3://$$BUCKET" 2>/dev/null; then
+            echo "bucket $$BUCKET created"; exit 0
+          fi
+          if aws --endpoint-url http://storage:8333 s3 ls "s3://$$BUCKET" >/dev/null 2>&1; then
+            echo "bucket $$BUCKET already present"; exit 0
+          fi
+          sleep 2
+        done
+        echo "could not create bucket $$BUCKET" >&2; exit 1
+    restart: "no"
 
   backend:
-    build:
-      context: ..
-      dockerfile: infra/Dockerfile.backend
+    build: *backend_build
     command: python manage.py runserver 0.0.0.0:8000
-    environment: &backend_env
-      DJANGO_SETTINGS_MODULE: config.settings.dev
-      DJANGO_SECRET_KEY: docker-dev-secret
-      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0,backend
-      DATABASE_URL: postgres://palatial:palatial@postgres:5432/palatial
-      REDIS_URL: redis://redis:6379/0
-      FRONTEND_URL: http://localhost:3000
-      EMAIL_HOST: mailhog
-      EMAIL_PORT: "1025"
-    volumes:
-      - ../backend:/app
+    environment:
+      <<: *backend_env
+      # Only this service migrates. The worker, beat and flower share the
+      # image and would otherwise race it on a simultaneous start, and the
+      # loser of that race exits non-zero.
+      RUN_MIGRATIONS: "1"
+    env_file: *env_file
+    volumes: *backend_volumes
     ports:
       - "8000:8000"
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
 
   worker:
-    build:
-      context: ..
-      dockerfile: infra/Dockerfile.backend
-    command: celery -A config worker -l info -Q default,crawl,enrich,ai,send,analytics
-    environment: *backend_env
-    volumes:
-      - ../backend:/app
+    build: *backend_build
+    # Queues per BUILD_PLAN 1.10. `crawl` runs here for development
+    # convenience only: in production it belongs on its own worker, because it
+    # is the one queue that fetches customer-supplied URLs and so the one that
+    # needs a restricted egress policy (see apps.intelligence.fetcher).
+    command: celery -A config worker -l info -Q default,crawl,enrich,ai,send,analytics --concurrency 4
+    environment:
+      <<: *backend_env
+      RUN_MIGRATIONS: "0"
+    env_file: *env_file
+    volumes: *backend_volumes
     depends_on:
-      - backend
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
   beat:
+    build: *backend_build
+    command: celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    environment:
+      <<: *backend_env
+      RUN_MIGRATIONS: "0"
+    env_file: *env_file
+    volumes: *backend_volumes
+    depends_on:
+      # DatabaseScheduler reads tables the backend's migration creates, so it
+      # waits for the service that runs them rather than for the database.
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Queue visibility (BUILD_PLAN 1.10). Development only: unauthenticated, and
+  # it exposes task arguments, so it must not be reachable anywhere else.
+  flower:
+    build: *backend_build
+    command: celery -A config flower --port=5555
+    environment:
+      <<: *backend_env
+      RUN_MIGRATIONS: "0"
+    env_file: *env_file
+    volumes: *backend_volumes
+    ports:
+      - "5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
     build:
       context: ..
-      dockerfile: infra/Dockerfile.backend
-    command: celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
-    environment: *backend_env
+      dockerfile: infra/Dockerfile.web
+      target: dev
+    command: npm run dev
+    environment:
+      # The Next server resolves this, so it is the compose hostname.
+      # NEXT_PUBLIC_SITE_URL is the one the browser sees.
+      API_PROXY_URL: http://backend:8000
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      # A bind mount on a Windows or macOS host delivers no inotify events, so
+      # without polling an edit never triggers a rebuild.
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    env_file: *env_file
     volumes:
-      - ../backend:/app
+      - ../web:/app
+      # Anonymous volumes, so the image's Linux-built node_modules and the
+      # container's build cache are not masked by the host's copies.
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - "3000:3000"
     depends_on:
-      - backend
-      - redis
+      backend:
+        condition: service_started
+    restart: unless-stopped
 
 volumes:
   postgres_data:
   redis_data:
-  minio_data:
+  storage_data:

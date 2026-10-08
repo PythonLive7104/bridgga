@@ -1,0 +1,84 @@
+# Next.js frontend.
+#
+#   dev   -- next dev, source bind-mounted, node_modules kept in the image
+#   prod  -- next build, then the standalone server on a minimal runtime
+#
+# Build context is the repository root, so paths below are repo-relative.
+
+# Node 24 to match the host and CI. A lockfile written by npm 11 is not
+# validated the same way by the npm 10 that ships with node 22: `npm ci`
+# there resolves peer dependencies differently and rejects the lock as out
+# of sync. Pinning the major keeps one resolver across host, CI and image.
+FROM node:24-alpine AS base
+ENV NEXT_TELEMETRY_DISABLED=1
+WORKDIR /app
+
+
+# --------------------------------------------------------------------------- #
+# Dependencies. Copying the lockfile alone first means a source edit does not
+# invalidate the install layer.
+# --------------------------------------------------------------------------- #
+FROM base AS deps
+COPY web/package.json web/package-lock.json* ./
+# `npm ci` and not `npm install`: it installs exactly the locked tree and
+# fails loudly when the lock and package.json disagree, which is what keeps
+# the image, CI and a developer's machine on the same dependency versions.
+RUN npm ci
+
+
+# --------------------------------------------------------------------------- #
+# dev
+# --------------------------------------------------------------------------- #
+FROM base AS dev
+
+COPY --from=deps /app/node_modules ./node_modules
+
+ENV NODE_ENV=development
+EXPOSE 3000
+
+# next dev's own file watching is enough on Linux. On a Windows host the bind
+# mount does not deliver inotify events, so compose sets WATCHPACK_POLLING.
+CMD ["npm", "run", "dev"]
+
+
+# --------------------------------------------------------------------------- #
+# build
+# --------------------------------------------------------------------------- #
+FROM base AS build
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY web/ ./
+
+# Baked into the bundle at build time, so it must point at wherever the browser
+# will reach the API from -- not at an internal compose hostname.
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NODE_ENV=production
+
+RUN npm run build
+
+
+# --------------------------------------------------------------------------- #
+# prod: the standalone output only -- no npm, no node_modules tree, no source.
+# --------------------------------------------------------------------------- #
+FROM base AS prod
+
+ENV NODE_ENV=production \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+
+# `output: "standalone"` in next.config.ts traces the modules actually used
+# and writes them, plus a server, into .next/standalone. Copying that instead
+# of the whole dependency tree is the difference between a ~150MB image and a
+# ~1GB one.
+COPY --from=build --chown=node:node /app/.next/standalone ./
+COPY --from=build --chown=node:node /app/.next/static ./.next/static
+COPY --from=build --chown=node:node /app/public ./public
+
+USER node
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["node", "server.js"]

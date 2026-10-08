@@ -1,10 +1,20 @@
 import type { NextConfig } from "next";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Where the Next server forwards /api and /auth-api. Server-side only, and so
+// deliberately not a NEXT_PUBLIC_ variable: in a container this is an internal
+// hostname like http://backend:8000, which the browser cannot resolve and
+// which has no business being inlined into a client bundle.
+const API_URL =
+  process.env.API_PROXY_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+
+  // Traces the modules actually reached and emits them next to a server into
+  // .next/standalone, which is all the production container ships. Harmless
+  // outside Docker: `next dev` and `next start` ignore it.
+  output: "standalone",
 
   // Note: Next normalises a trailing slash away before applying a rewrite, so
   // the proxied API routes are declared without one on the Django side (see

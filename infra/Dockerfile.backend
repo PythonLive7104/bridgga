@@ -1,24 +1,111 @@
+# Django backend.
+#
+# Two build targets from one file so the dev and production images cannot
+# drift apart in their base, their interpreter, or their system packages:
+#
+#   dev   -- dev.txt (pytest, ruff, mypy, flower), source bind-mounted
+#   prod  -- base.txt only, source copied, static collected, gunicorn
+#
+# Build context is the repository root, so paths below are repo-relative.
+
+# Python 3.13 rather than the 3.14 used on the host: psycopg and argon2-cffi
+# publish manylinux wheels for 3.13, and on 3.14 pip would fall back to
+# compiling both from source on every rebuild. Django 6.0 supports either.
 FROM python:3.13-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
-# Build tools are needed for argon2-cffi and psycopg; they are installed and
-# removed in one layer so they do not ship in the image.
+# Runtime libraries only. libpq5 is the shared library psycopg[binary] links
+# against; curl is here for the healthcheck. No compiler in this layer, so
+# anything needing one must install it in its own stage and leave it behind.
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y build-essential libpq-dev curl \
+    && apt-get install --no-install-recommends -y libpq5 curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements/ /app/requirements/
-RUN pip install --upgrade pip && pip install -r requirements/dev.txt
+RUN useradd --create-home --uid 10001 appuser
 
-COPY backend/ /app/
+COPY infra/entrypoint.backend.sh /usr/local/bin/entrypoint
+RUN chmod +x /usr/local/bin/entrypoint
 
-# Run as a non-root user: a container that does not need root should not have it.
-RUN useradd --create-home --uid 10001 appuser && chown -R appuser:appuser /app
+
+# --------------------------------------------------------------------------- #
+# Dependencies, in their own stage so the wheels survive a source change.
+# --------------------------------------------------------------------------- #
+FROM base AS deps
+
+# build-essential is installed here and inherited by nothing: the later stages
+# copy the finished site-packages tree out of this one, so the compiler never
+# reaches a shipped image.
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y build-essential libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements/ /tmp/requirements/
+RUN pip install --upgrade pip && pip install -r /tmp/requirements/base.txt
+
+
+FROM deps AS deps-dev
+RUN pip install -r /tmp/requirements/dev.txt
+
+
+# --------------------------------------------------------------------------- #
+# dev: source arrives by bind mount, so no COPY of the application here.
+# --------------------------------------------------------------------------- #
+FROM base AS dev
+
+COPY --from=deps-dev /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=deps-dev /usr/local/bin /usr/local/bin
+
+ENV DJANGO_SETTINGS_MODULE=config.settings.dev
+
+# The bind mount lands on /app owned by the host user; staticfiles and media
+# are created here so a non-root process can write them either way.
+RUN mkdir -p /app/staticfiles /app/media && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8000
+ENTRYPOINT ["entrypoint"]
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+
+
+# --------------------------------------------------------------------------- #
+# prod: no dev dependencies, no source mount, static assets baked in.
+# --------------------------------------------------------------------------- #
+FROM base AS prod
+
+COPY --from=deps /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
+COPY --from=deps /usr/local/bin /usr/local/bin
+
+COPY --chown=appuser:appuser backend/ /app/
+
+ENV DJANGO_SETTINGS_MODULE=config.settings.prod
+
+# Static files are collected at build time, not on boot: it must not be
+# possible for a container to start and serve a half-collected asset tree, and
+# every replica would otherwise repeat the same work.
+#
+# Collected under the production settings, because those are the ones using
+# CompressedManifestStaticFilesStorage. Collecting under dev settings would
+# write a tree with no staticfiles.json, and every asset URL would then fail
+# at runtime.
+#
+# Those settings refuse to import without a secret, a database, a bucket and a
+# mail host. collectstatic needs none of them, so placeholders stand in -- and
+# because they are set on this single RUN rather than with ENV, they are
+# neither baked into the image nor present in a running container.
+RUN DJANGO_SECRET_KEY=collectstatic-only \
+    DJANGO_ALLOWED_HOSTS=localhost \
+    DATABASE_URL=postgresql://localhost/none \
+    AWS_STORAGE_BUCKET_NAME=none \
+    EMAIL_HOST=localhost \
+    python manage.py collectstatic --noinput --clear \
+    && chown -R appuser:appuser /app/staticfiles
+
 USER appuser
 
 EXPOSE 8000
@@ -26,4 +113,13 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://localhost:8000/healthz || exit 1
 
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
+ENTRYPOINT ["entrypoint"]
+# Threads as well as workers: these requests are dominated by waiting on
+# Postgres, Redis and AI providers rather than on CPU.
+CMD ["gunicorn", "config.wsgi:application", \
+     "--bind", "0.0.0.0:8000", \
+     "--workers", "3", \
+     "--threads", "4", \
+     "--timeout", "60", \
+     "--access-logfile", "-", \
+     "--error-logfile", "-"]

@@ -1,0 +1,44 @@
+# Build-context exclusions.
+#
+# The context is the repository root (both Dockerfiles need to reach across
+# backend/ and web/), so without this file every build would upload the host's
+# .venv and node_modules -- hundreds of megabytes of Windows-linked binaries
+# that would then be copied over the Linux ones installed in the image.
+
+.git/
+.github/
+.gitignore
+
+# Host virtualenvs and caches. A Windows .venv inside a Linux image is not
+# merely useless: on a bind mount it shadows the interpreter's own packages.
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.py[cod]
+**/.mypy_cache/
+**/.ruff_cache/
+**/.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Node: installed inside the image for the right platform.
+**/node_modules/
+**/.next/
+**/out/
+**/.turbo/
+**/*.tsbuildinfo
+
+# Local state that must never be baked into an image.
+**/*.sqlite3
+.env
+.env.*
+!.env.example
+**/staticfiles/
+**/media/
+celerybeat-schedule*
+**/*.log
+
+# Docs and plans: not needed to build or run anything.
+docs/
+*.md

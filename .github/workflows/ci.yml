@@ -11,7 +11,7 @@ concurrency:
 
 env:
   PYTHON_VERSION: "3.13"
-  NODE_VERSION: "22"
+  NODE_VERSION: "24"
 
 jobs:
   backend:
@@ -25,9 +25,9 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: palatial
-          POSTGRES_PASSWORD: palatial
-          POSTGRES_DB: palatial_test
+          POSTGRES_USER: bridgga
+          POSTGRES_PASSWORD: bridgga
+          POSTGRES_DB: bridgga_test
         ports: ["5432:5432"]
         options: >-
           --health-cmd pg_isready
@@ -45,7 +45,7 @@ jobs:
 
     env:
       DJANGO_SETTINGS_MODULE: config.settings.test
-      DATABASE_URL: postgres://palatial:palatial@localhost:5432/palatial_test
+      DATABASE_URL: postgres://bridgga:bridgga@localhost:5432/bridgga_test
       REDIS_URL: redis://localhost:6379/0
 
     defaults:
