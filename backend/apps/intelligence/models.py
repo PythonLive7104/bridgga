@@ -13,12 +13,10 @@ the customer -- see its docstring for how an edit survives re-analysis.
 
 from __future__ import annotations
 
-from typing import Any
-
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from apps.common.models import TenantOwnedModel
+from apps.common.models import AIEditableModel, TenantOwnedModel
 
 
 class SnapshotStatus(models.TextChoices):
@@ -106,29 +104,17 @@ class ProfileStatus(models.TextChoices):
     FAILED = "failed", _("Analysis failed")
 
 
-class CompanyProfile(TenantOwnedModel):
+class CompanyProfile(AIEditableModel):
     """What the platform understands about the customer's own business.
 
-    PRD section 26 ends with one sentence that shapes this whole model: "All
-    AI-generated data must be editable." Editable is cheap; *staying* edited is
-    the hard part, because re-analysis happens whenever the customer's site
-    changes and the obvious implementation silently discards the corrections
-    they made.
-
-    So each field carries provenance. ``ai_values`` keeps what the model last
-    said and ``edited_fields`` records what a human changed since; a re-run
-    writes only into fields nobody has touched. A correction therefore survives
-    every later analysis until it is explicitly reset -- and because the AI's
-    version is still stored, the UI can offer both.
+    PRD section 26 ends with one sentence that shapes this model: "All
+    AI-generated data must be editable." ``AIEditableModel`` is what makes an
+    edit *stay* edited across re-analysis; see its docstring.
 
     One per organization: this is the company the customer *is*, not a company
     they are selling to. Prospects are a separate model.
     """
 
-    #: Fields the agent populates, and therefore the ones edit-tracking covers.
-    #: Everything generic -- serialisation, edit detection, reset -- iterates
-    #: this, so adding a field to the schema means adding it here and nowhere
-    #: else.
     AI_FIELDS: tuple[str, ...] = (
         "company_name",
         "one_line_summary",
@@ -176,12 +162,6 @@ class CompanyProfile(TenantOwnedModel):
         verbose_name=_("source snapshots"),
     )
 
-    # What the agent last produced, before any human edit. Keeping it means a
-    # correction can be undone, and means "what did the AI actually say?" stays
-    # answerable after someone has edited the record.
-    ai_values = models.JSONField(_("AI values"), default=dict, blank=True)
-    edited_fields = models.JSONField(_("human-edited fields"), default=list, blank=True)
-
     status = models.CharField(
         _("status"), max_length=16, choices=ProfileStatus.choices, default=ProfileStatus.DRAFT
     )
@@ -207,9 +187,17 @@ class CompanyProfile(TenantOwnedModel):
     def is_confirmed(self) -> bool:
         return self.status == ProfileStatus.CONFIRMED
 
-    def was_edited(self, field: str) -> bool:
-        return field in self.edited_fields
 
-    def ai_value_for(self, field: str) -> Any:
-        """What the agent last produced for a field, regardless of later edits."""
-        return self.ai_values.get(field)
+# Re-exported so ``from apps.intelligence.models import ICP`` works and Django's
+# app registry discovers the model. It lives in its own module because reading a
+# website and deciding who to sell to are different subjects.
+from apps.intelligence.icp_models import ICP, ICPStatus  # noqa: E402
+
+__all__ = [
+    "ICP",
+    "CompanyProfile",
+    "ICPStatus",
+    "ProfileStatus",
+    "SnapshotStatus",
+    "WebsiteSnapshot",
+]

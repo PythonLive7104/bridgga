@@ -24,11 +24,11 @@ from urllib.parse import urlsplit
 
 import structlog
 from django.db import transaction
-from django.db.models import JSONField
 from django.utils import timezone
 
 from apps.ai.runner import run_prompt
 from apps.ai.schemas import CompanyProfile as CompanyProfileSchema
+from apps.common import ai_editing as editing
 from apps.common.tenancy import tenant_context
 from apps.intelligence.extract import INTERESTING_PATH_HINTS
 from apps.intelligence.models import (
@@ -194,7 +194,6 @@ def analyze_company(
     )
 
 
-@transaction.atomic
 def apply_ai_output(
     *,
     profile: CompanyProfile,
@@ -204,36 +203,35 @@ def apply_ai_output(
 ) -> CompanyProfile:
     """Write agent output into the profile, preserving human edits.
 
-    The rule is one line long and is the whole point of the model: a field a
-    human has edited keeps its value. ``ai_values`` still records what the
-    agent said, so the edit stays reversible and the two versions remain
-    comparable.
+    The preservation rule itself lives in ``apps.common.ai_editing``; what is
+    local to this agent is the run's own account of itself -- evidence, the
+    pages read, the prompt version -- and one judgement about status.
     """
     values = output.model_dump(mode="json")
 
-    with tenant_context(organization=profile.organization):
-        ai_values: dict[str, Any] = {}
-        for field in CompanyProfile.AI_FIELDS:
-            ai_values[field] = values.get(field)
-            if profile.was_edited(field):
-                continue
-            setattr(profile, field, values.get(field) or _empty_for(profile, field))
+    editing.apply_ai_output(
+        record=profile,
+        values=values,
+        extra={
+            "evidence": values.get("evidence") or [],
+            "unknowns": values.get("unknowns") or [],
+            "confidence": values.get("confidence") or "",
+            "prompt_pin": prompt_pin,
+            "last_analyzed_at": timezone.now(),
+            "analysis_error": "",
+            # A re-analysis of a confirmed profile does not un-confirm it: the
+            # customer already agreed to this, and the fields they agreed to
+            # are exactly the ones preserved above.
+            "status": (
+                ProfileStatus.CONFIRMED
+                if profile.status == ProfileStatus.CONFIRMED
+                else ProfileStatus.READY
+            ),
+        },
+    )
 
-        profile.ai_values = ai_values
-        profile.evidence = values.get("evidence") or []
-        profile.unknowns = values.get("unknowns") or []
-        profile.confidence = values.get("confidence") or ""
-        profile.prompt_pin = prompt_pin
-        profile.last_analyzed_at = timezone.now()
-        profile.analysis_error = ""
-        # A re-analysis of a confirmed profile does not un-confirm it: the
-        # customer already agreed to this, and the fields they agreed to are
-        # exactly the ones preserved above.
-        if profile.status != ProfileStatus.CONFIRMED:
-            profile.status = ProfileStatus.READY
-        profile.save()
-
-        if snapshots:
+    if snapshots:
+        with tenant_context(organization=profile.organization):
             profile.source_snapshots.set([s for s in snapshots if s.succeeded])
 
     logger.info(
@@ -246,55 +244,14 @@ def apply_ai_output(
     return profile
 
 
-@transaction.atomic
 def apply_edits(*, profile: CompanyProfile, data: dict[str, Any]) -> list[str]:
-    """Apply human edits and record which fields they touched.
-
-    Returns the fields that actually changed. A value re-submitted unchanged
-    does not mark the field as edited: an onboarding form posts every field
-    whether or not the customer touched it, and treating that as thirteen edits
-    would freeze the whole profile against future analysis.
-    """
-    changed: list[str] = []
-
-    with tenant_context(organization=profile.organization):
-        for field, value in data.items():
-            if field not in CompanyProfile.AI_FIELDS:
-                continue
-            if getattr(profile, field) == value:
-                continue
-            setattr(profile, field, value)
-            changed.append(field)
-
-        if changed:
-            profile.edited_fields = sorted(set(profile.edited_fields) | set(changed))
-            profile.save()
-
-    return changed
+    """Apply human edits. See ``apps.common.ai_editing.apply_edits``."""
+    return editing.apply_edits(record=profile, data=data)
 
 
-@transaction.atomic
 def reset_fields(*, profile: CompanyProfile, fields: list[str]) -> list[str]:
-    """Drop a human edit and restore what the agent said.
-
-    Needed because an edit is otherwise permanent: once a field is marked
-    edited, no later analysis will ever touch it again. Without a way back, a
-    customer who mistypes something has quietly pinned that mistake forever.
-    """
-    restored: list[str] = []
-
-    with tenant_context(organization=profile.organization):
-        for field in fields:
-            if field not in CompanyProfile.AI_FIELDS or not profile.was_edited(field):
-                continue
-            setattr(profile, field, profile.ai_value_for(field) or _empty_for(profile, field))
-            restored.append(field)
-
-        if restored:
-            profile.edited_fields = [f for f in profile.edited_fields if f not in restored]
-            profile.save()
-
-    return restored
+    """Restore the agent's version of edited fields."""
+    return editing.reset_fields(record=profile, fields=fields)
 
 
 @transaction.atomic
@@ -305,11 +262,6 @@ def confirm_profile(*, profile: CompanyProfile) -> CompanyProfile:
         profile.confirmed_at = timezone.now()
         profile.save(update_fields=["status", "confirmed_at", "updated_at"])
     return profile
-
-
-def _empty_for(profile: CompanyProfile, field: str) -> Any:
-    """The empty value matching a field's type, so a cleared list is [] not ""."""
-    return [] if isinstance(profile._meta.get_field(field), JSONField) else ""
 
 
 def _fail(

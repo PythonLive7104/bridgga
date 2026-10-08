@@ -129,3 +129,77 @@ export type CompanyProfileField =
   | "geographies"
   | "buyer_personas"
   | "competitors";
+
+/** The closed signal vocabulary (PRD section 33). Mirrors apps.ai.schemas.SignalType. */
+export const SIGNAL_TYPES = [
+  "funding",
+  "hiring",
+  "expansion",
+  "acquisition",
+  "new_office",
+  "leadership_change",
+  "new_pages",
+  "product_launch",
+  "pricing_change",
+  "technology_change",
+  "website_change",
+  "advertising",
+  "content_growth",
+  "social_activity",
+  "procurement",
+  "other",
+] as const;
+
+export type SignalType = (typeof SIGNAL_TYPES)[number];
+
+export interface PainSignal {
+  type: SignalType;
+  description: string;
+  why_it_matters?: string;
+}
+
+export type ICPStatus = "draft" | "generating" | "ready" | "active" | "failed";
+
+export interface ICP {
+  id: string;
+  name: string;
+  industries: string[];
+  countries: string[];
+  employee_range: string;
+  business_size: string;
+  business_models: string[];
+  technologies: string[];
+  growth_stage: string;
+  job_titles: string[];
+  departments: string[];
+  seniority: string[];
+  responsibilities: string[];
+  pain_signals: PainSignal[];
+  rationale: string;
+  evidence: EvidenceItem[];
+  confidence: string;
+  status: ICPStatus;
+  generation_error: string;
+  prompt_pin: string;
+  is_active: boolean;
+  edited_fields: string[];
+  fields_meta: Record<string, FieldMeta>;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ICPField =
+  | "name"
+  | "industries"
+  | "countries"
+  | "employee_range"
+  | "business_size"
+  | "business_models"
+  | "technologies"
+  | "growth_stage"
+  | "job_titles"
+  | "departments"
+  | "seniority"
+  | "responsibilities"
+  | "pain_signals"
+  | "rationale";

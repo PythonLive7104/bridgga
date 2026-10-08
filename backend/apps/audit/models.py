@@ -47,6 +47,10 @@ class AuditAction(models.TextChoices):
     COMPANY_PROFILE_UPDATED = "company_profile_updated", _("Company profile edited")
     COMPANY_PROFILE_CONFIRMED = "company_profile_confirmed", _("Company profile confirmed")
 
+    ICP_GENERATED = "icp_generated", _("ICP generated")
+    ICP_UPDATED = "icp_updated", _("ICP edited")
+    ICP_ACTIVATED = "icp_activated", _("ICP made active")
+
     CAMPAIGN_LAUNCHED = "campaign_launched", _("Campaign launched")
     CAMPAIGN_PAUSED = "campaign_paused", _("Campaign paused")
     AUTOPILOT_ENABLED = "autopilot_enabled", _("AI autopilot enabled")

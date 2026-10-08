@@ -13,9 +13,10 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.accounts.models import User
+from apps.ai.schemas import SignalType
 from apps.audit.models import AuditLog
 from apps.billing.models import CreditEntry, Plan, Subscription
-from apps.intelligence.models import CompanyProfile, WebsiteSnapshot
+from apps.intelligence.models import ICP, CompanyProfile, WebsiteSnapshot
 from apps.organizations.models import Invitation, Membership, Organization, Workspace
 from apps.organizations.roles import Role, capabilities_for
 
@@ -322,5 +323,81 @@ class CompanyProfileResetSerializer(serializers.Serializer):
 
     fields = serializers.ListField(
         child=serializers.ChoiceField(choices=[(f, f) for f in CompanyProfile.AI_FIELDS]),
+        allow_empty=False,
+    )
+
+
+class ICPSerializer(serializers.ModelSerializer):
+    """An ideal customer profile, with the same per-field provenance as the profile."""
+
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    fields_meta = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ICP
+        fields = [
+            "id",
+            "name",
+            "industries",
+            "countries",
+            "employee_range",
+            "business_size",
+            "business_models",
+            "technologies",
+            "growth_stage",
+            "job_titles",
+            "departments",
+            "seniority",
+            "responsibilities",
+            "pain_signals",
+            "rationale",
+            "evidence",
+            "confidence",
+            "status",
+            "generation_error",
+            "prompt_pin",
+            "is_active",
+            "edited_fields",
+            "fields_meta",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [f for f in fields if f not in ICP.AI_FIELDS]
+
+    @extend_schema_field(
+        {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "properties": {"edited": {"type": "boolean"}, "ai_value": {}},
+            },
+        }
+    )
+    def get_fields_meta(self, obj: ICP) -> dict[str, dict]:
+        return obj.fields_meta()
+
+    def validate_pain_signals(self, value: list) -> list:
+        """Keep the signal vocabulary closed on the way in.
+
+        A free-text type would be accepted here and then never match anything
+        the signal engine detects, which fails silently and much later.
+        """
+        valid = {member.value for member in SignalType}
+        for entry in value:
+            if not isinstance(entry, dict):
+                raise serializers.ValidationError("Each signal must be an object.")
+            if entry.get("type") not in valid:
+                raise serializers.ValidationError(
+                    f"Unknown signal type {entry.get('type')!r}. "
+                    f"Choose one of: {', '.join(sorted(valid))}."
+                )
+            if not entry.get("description"):
+                raise serializers.ValidationError("Each signal needs a description.")
+        return value
+
+
+class ICPResetSerializer(serializers.Serializer):
+    fields = serializers.ListField(
+        child=serializers.ChoiceField(choices=[(f, f) for f in ICP.AI_FIELDS]),
         allow_empty=False,
     )

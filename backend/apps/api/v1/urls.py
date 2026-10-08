@@ -24,6 +24,7 @@ router.register("invitations", views.InvitationViewSet, basename="invitation")
 router.register("audit-logs", views.AuditLogViewSet, basename="auditlog")
 router.register("billing/credits", views.CreditLedgerViewSet, basename="creditentry")
 router.register("intelligence/snapshots", views.WebsiteSnapshotViewSet, basename="websitesnapshot")
+router.register("intelligence/icps", views.ICPViewSet, basename="icp")
 
 urlpatterns = [
     path("me", views.MeView.as_view(), name="me"),

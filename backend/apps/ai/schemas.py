@@ -97,6 +97,55 @@ class BuyerProfile(StrictModel):
     responsibilities: list[str] = Field(default_factory=list, max_length=15)
 
 
+class SignalType(StrEnum):
+    """The observable events the platform can actually detect (PRD section 33).
+
+    A closed vocabulary, not free text, and that is the whole point. An ICP
+    whose pain signals read "they seem to be growing" can never be matched
+    against anything; one that names ``hiring`` is matched by the hiring
+    detector the moment that detector exists. This enum is the join between
+    what a customer says they are looking for and what the signal engine
+    watches for.
+    """
+
+    # Corporate
+    FUNDING = "funding"
+    HIRING = "hiring"
+    EXPANSION = "expansion"
+    ACQUISITION = "acquisition"
+    NEW_OFFICE = "new_office"
+    LEADERSHIP_CHANGE = "leadership_change"
+    # Website
+    NEW_PAGES = "new_pages"
+    PRODUCT_LAUNCH = "product_launch"
+    PRICING_CHANGE = "pricing_change"
+    TECHNOLOGY_CHANGE = "technology_change"
+    WEBSITE_CHANGE = "website_change"
+    # Marketing
+    ADVERTISING = "advertising"
+    CONTENT_GROWTH = "content_growth"
+    SOCIAL_ACTIVITY = "social_activity"
+    # Sales
+    PROCUREMENT = "procurement"
+
+    OTHER = "other"
+
+
+class PainSignal(StrictModel):
+    """One observable event that suggests a company needs this product."""
+
+    type: SignalType
+    description: str = Field(
+        max_length=300,
+        description="What specifically to look for, e.g. 'hiring fleet or logistics managers'.",
+    )
+    why_it_matters: str = Field(
+        default="",
+        max_length=300,
+        description="Why this event implies a need for what the customer sells.",
+    )
+
+
 class ICPDraft(StrictModel):
     """Generated ideal customer profile (PRD section 27)."""
 
@@ -104,15 +153,18 @@ class ICPDraft(StrictModel):
     industries: list[str] = Field(default_factory=list, max_length=20)
     countries: list[str] = Field(default_factory=list, max_length=20)
     employee_range: str = Field(default="", description="e.g. 25-250")
+    business_size: str = Field(
+        default="", description="Estimated size band, e.g. SMB, mid-market, enterprise."
+    )
     business_models: list[str] = Field(default_factory=list, max_length=10)
     technologies: list[str] = Field(default_factory=list, max_length=20)
     growth_stage: str = ""
 
     buyer: BuyerProfile = Field(default_factory=BuyerProfile)
-    pain_signals: list[str] = Field(
+    pain_signals: list[PainSignal] = Field(
         default_factory=list,
         max_length=20,
-        description="Observable events suggesting a company needs this, e.g. hiring, expansion.",
+        description="Observable events suggesting a company needs this.",
     )
 
     rationale: str = Field(default="", description="Why this profile follows from the company.")

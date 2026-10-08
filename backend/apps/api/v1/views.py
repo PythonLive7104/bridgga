@@ -7,6 +7,7 @@ from typing import Any
 from django.db import transaction
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -20,8 +21,8 @@ from apps.billing.models import CreditEntry, Subscription
 from apps.common.permissions import HasCapability, RequireOrganization
 from apps.common.tenancy import unscoped
 from apps.common.viewsets import TenantReadOnlyViewSet, TenantScopedViewSet
-from apps.intelligence import agents, tasks
-from apps.intelligence.models import ProfileStatus, WebsiteSnapshot
+from apps.intelligence import agents, icp_agents, tasks
+from apps.intelligence.models import ICP, ProfileStatus, WebsiteSnapshot
 from apps.organizations import services
 from apps.organizations.models import Invitation, Membership, Organization, Workspace
 from apps.organizations.roles import Capability, capabilities_for
@@ -499,3 +500,117 @@ class WebsiteSnapshotViewSet(TenantReadOnlyViewSet):
     required_capability = Capability.COMPANY_PROFILE_VIEW
     filterset_fields = ["status"]
     search_fields = ["requested_url", "title"]
+
+
+class ICPViewSet(TenantScopedViewSet):
+    """Ideal customer profiles (PRD section 27).
+
+    A collection rather than a singleton, unlike the company profile: a real
+    business sells to more than one kind of buyer, and each needs its own
+    sizes, titles and signals. One is active at a time -- the default that
+    prospect discovery and campaigns read.
+
+    Reading sits with ``prospect.view`` because an ICP is what the prospect
+    list means; editing sits with ``icp.manage``, because changing it changes
+    what the whole workspace targets.
+    """
+
+    queryset = ICP.objects.all()
+    serializer_class = s.ICPSerializer
+    required_capability = Capability.PROSPECT_VIEW
+    write_capability = Capability.ICP_MANAGE
+    search_fields = ["name"]
+    ordering_fields = ["name", "created_at"]
+
+    def perform_update(self, serializer: Any) -> None:
+        """Route edits through the service so provenance is recorded.
+
+        Saving the serializer directly would write the fields and leave
+        ``edited_fields`` untouched, and the next generation would quietly
+        overwrite the customer's work.
+        """
+        icp = serializer.instance
+        changed = icp_agents.apply_edits(icp=icp, data=dict(serializer.validated_data))
+        if changed:
+            record_audit(
+                organization=self.request.organization,
+                action=AuditAction.ICP_UPDATED,
+                actor=self.request.user,
+                target=icp,
+                metadata={"fields": changed},
+                request=self.request,
+            )
+
+    @extend_schema(request=None, responses={202: s.ICPSerializer})
+    @action(detail=False, methods=["post"], url_path="generate")
+    def generate(self, request: Request) -> Response:
+        """Draft an ICP from the confirmed company profile."""
+        if not request.membership.has_capability(Capability.ICP_MANAGE):
+            self.permission_denied(request, message="Your role cannot generate an ICP.")
+
+        icp = icp_agents.generate_icp(organization=request.organization, requested_by=request.user)
+        record_audit(
+            organization=request.organization,
+            action=AuditAction.ICP_GENERATED,
+            actor=request.user,
+            target=icp,
+            request=request,
+        )
+        return Response(s.ICPSerializer(icp).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=None, responses={200: s.ICPSerializer})
+    @action(detail=True, methods=["post"], url_path="regenerate")
+    def regenerate(self, request: Request, **kwargs: Any) -> Response:
+        """Re-draft this ICP in place, keeping edited fields."""
+        icp = self.get_object()
+        if not request.membership.has_capability(Capability.ICP_MANAGE):
+            self.permission_denied(request, message="Your role cannot generate an ICP.")
+
+        icp_agents.generate_icp(
+            organization=request.organization, icp=icp, requested_by=request.user
+        )
+        icp.refresh_from_db()
+        return Response(s.ICPSerializer(icp).data)
+
+    @extend_schema(request=s.ICPResetSerializer, responses={200: s.ICPSerializer})
+    @action(detail=True, methods=["post"], url_path="reset")
+    def reset(self, request: Request, **kwargs: Any) -> Response:
+        """Restore edited fields to what the agent produced."""
+        icp = self.get_object()
+        if not request.membership.has_capability(Capability.ICP_MANAGE):
+            self.permission_denied(request, message="Your role cannot edit an ICP.")
+
+        serializer = s.ICPResetSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        restored = icp_agents.reset_fields(icp=icp, fields=serializer.validated_data["fields"])
+        if restored:
+            record_audit(
+                organization=request.organization,
+                action=AuditAction.ICP_UPDATED,
+                actor=request.user,
+                target=icp,
+                metadata={"reset_fields": restored},
+                request=request,
+            )
+        icp.refresh_from_db()
+        return Response(s.ICPSerializer(icp).data)
+
+    @extend_schema(request=None, responses={200: s.ICPSerializer})
+    @action(detail=True, methods=["post"], url_path="activate")
+    def activate(self, request: Request, **kwargs: Any) -> Response:
+        """Make this the ICP discovery and campaigns use by default."""
+        icp = self.get_object()
+        if not request.membership.has_capability(Capability.ICP_MANAGE):
+            self.permission_denied(request, message="Your role cannot change the active ICP.")
+
+        icp_agents.activate(icp=icp)
+        record_audit(
+            organization=request.organization,
+            action=AuditAction.ICP_ACTIVATED,
+            actor=request.user,
+            target=icp,
+            target_label=icp.name,
+            request=request,
+        )
+        icp.refresh_from_db()
+        return Response(s.ICPSerializer(icp).data)

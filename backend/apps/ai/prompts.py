@@ -136,7 +136,10 @@ attribute each `Evidence` entry to the page it came from.
 ICP_DRAFT = register(
     Prompt(
         name="icp_draft",
-        version=1,
+        # v2: pain signals became a closed vocabulary (apps.ai.schemas.SignalType)
+        # so the signal engine can match them, and `business_size` was added
+        # per PRD section 27.
+        version=2,
         tier=Tier.ADVANCED,
         output_schema=ICPDraft,
         instructions="""\
@@ -145,9 +148,11 @@ organisation most likely to need what this company sells, and the person inside
 it who would own the decision.
 
 Specific guidance:
-- `pain_signals` must be observable from outside the company -- hiring, funding,
-  expansion, a product launch, an advertising push, a technology change. "Needs
-  better efficiency" is not observable; "hiring 10 drivers" is.
+- Each entry in `pain_signals` must be observable from outside the company.
+  "Needs better efficiency" is not observable; "hiring 10 drivers" is. Choose
+  the `type` from the fixed list; it is what the platform watches for. Put the
+  specific thing to look for in `description`, and use `other` only when no
+  listed type fits.
 - Prefer a narrower profile over a broad one. A smaller, highly relevant
   definition is more useful than one that matches everybody.
 - `countries` should reflect where this company already operates or credibly
