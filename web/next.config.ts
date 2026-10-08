@@ -6,6 +6,11 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
 
+  // Note: Next normalises a trailing slash away before applying a rewrite, so
+  // the proxied API routes are declared without one on the Django side (see
+  // backend/apps/api/v1/urls.py). Leaving the default redirect enabled means a
+  // stray /api/v1/me/ still resolves via one 308 rather than 404ing.
+
   // The marketing site is SEO-critical (PRD section 19), so keep images
   // optimised and let Next emit modern formats.
   images: { formats: ["image/avif", "image/webp"] },

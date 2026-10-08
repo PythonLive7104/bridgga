@@ -17,7 +17,7 @@ export const ME_QUERY_KEY = ["me"] as const;
 export function useSession() {
   const query = useQuery({
     queryKey: ME_QUERY_KEY,
-    queryFn: () => apiFetch<Me>("/api/v1/me/"),
+    queryFn: () => apiFetch<Me>("/api/v1/me"),
     staleTime: 60_000,
   });
 
