@@ -52,6 +52,8 @@ class Capability(models.TextChoices):
     AUDIT_VIEW = "audit.view", _("View audit log")
     EXPORT_CREATE = "export.create", _("Export data")
 
+    COMPANY_PROFILE_VIEW = "company_profile.view", _("View the company profile")
+    COMPANY_PROFILE_MANAGE = "company_profile.manage", _("Edit and re-run the company profile")
     ICP_MANAGE = "icp.manage", _("Manage ICPs")
     PROSPECT_VIEW = "prospect.view", _("View prospects")
     PROSPECT_MANAGE = "prospect.manage", _("Manage prospects")
@@ -78,6 +80,7 @@ _VIEW_ONLY: frozenset[str] = frozenset(
         Capability.ORG_VIEW,
         Capability.MEMBER_VIEW,
         Capability.WORKSPACE_VIEW,
+        Capability.COMPANY_PROFILE_VIEW,
         Capability.PROSPECT_VIEW,
         Capability.CAMPAIGN_VIEW,
         Capability.CONVERSATION_VIEW,
@@ -93,6 +96,9 @@ _SALES_REP: frozenset[str] = _VIEW_ONLY | {
 }
 
 _MANAGER: frozenset[str] = _SALES_REP | {
+    # Sits with the ICP: both describe the business the whole workspace
+    # targets from, so changing either is more than a per-rep preference.
+    Capability.COMPANY_PROFILE_MANAGE,
     Capability.ICP_MANAGE,
     Capability.CAMPAIGN_MANAGE,
     Capability.CAMPAIGN_LAUNCH,

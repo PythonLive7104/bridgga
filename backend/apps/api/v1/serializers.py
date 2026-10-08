@@ -9,11 +9,13 @@ crosses the API boundary.
 
 from __future__ import annotations
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.accounts.models import User
 from apps.audit.models import AuditLog
 from apps.billing.models import CreditEntry, Plan, Subscription
+from apps.intelligence.models import CompanyProfile, WebsiteSnapshot
 from apps.organizations.models import Invitation, Membership, Organization, Workspace
 from apps.organizations.roles import Role, capabilities_for
 
@@ -215,3 +217,110 @@ class MeSerializer(serializers.Serializer):
     active_organization = OrganizationSerializer(read_only=True, allow_null=True)
     active_role = serializers.CharField(read_only=True, allow_null=True)
     active_capabilities = serializers.ListField(child=serializers.CharField(), read_only=True)
+
+
+class WebsiteSnapshotSerializer(serializers.ModelSerializer):
+    """The evidence trail behind a profile (PRD section 58)."""
+
+    id = serializers.UUIDField(source="public_id", read_only=True)
+
+    class Meta:
+        model = WebsiteSnapshot
+        fields = [
+            "id",
+            "requested_url",
+            "final_url",
+            "status",
+            "status_code",
+            "error_reason",
+            "title",
+            "fetched_at",
+        ]
+        read_only_fields = fields
+
+
+class CompanyProfileSerializer(serializers.ModelSerializer):
+    """The company profile, with provenance attached to each field.
+
+    ``fields_meta`` is the part that matters to the UI. Every AI-written field
+    reports whether a human has edited it and what the agent originally said,
+    which is what lets the interface show "edited — revert to the AI version"
+    rather than presenting an edited field and a generated one identically.
+    """
+
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    sources = WebsiteSnapshotSerializer(source="source_snapshots", many=True, read_only=True)
+    fields_meta = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CompanyProfile
+        fields = [
+            "id",
+            "website",
+            "company_name",
+            "one_line_summary",
+            "industry",
+            "business_model",
+            "value_proposition",
+            "pricing_summary",
+            "products",
+            "target_customers",
+            "use_cases",
+            "pain_points_solved",
+            "geographies",
+            "buyer_personas",
+            "competitors",
+            "evidence",
+            "unknowns",
+            "confidence",
+            "status",
+            "analysis_error",
+            "prompt_pin",
+            "last_analyzed_at",
+            "confirmed_at",
+            "edited_fields",
+            "sources",
+            "fields_meta",
+            "created_at",
+            "updated_at",
+        ]
+        # The editable surface is exactly AI_FIELDS. Status, evidence and
+        # provenance are the system's account of what happened and are not
+        # writable: a client that could set `status` could mark an unanalysed
+        # profile confirmed.
+        read_only_fields = [
+            field
+            for field in fields
+            if field not in CompanyProfile.AI_FIELDS and field != "website"
+        ]
+
+    @extend_schema_field(
+        {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "properties": {
+                    "edited": {"type": "boolean"},
+                    "ai_value": {},
+                },
+            },
+        }
+    )
+    def get_fields_meta(self, obj: CompanyProfile) -> dict[str, dict]:
+        return {
+            field: {"edited": obj.was_edited(field), "ai_value": obj.ai_value_for(field)}
+            for field in CompanyProfile.AI_FIELDS
+        }
+
+
+class CompanyProfileAnalyzeSerializer(serializers.Serializer):
+    website = serializers.URLField(required=False, allow_blank=True, max_length=2048)
+
+
+class CompanyProfileResetSerializer(serializers.Serializer):
+    """Which edited fields to restore to the agent's version."""
+
+    fields = serializers.ListField(
+        child=serializers.ChoiceField(choices=[(f, f) for f in CompanyProfile.AI_FIELDS]),
+        allow_empty=False,
+    )

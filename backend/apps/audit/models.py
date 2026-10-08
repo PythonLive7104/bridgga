@@ -43,6 +43,10 @@ class AuditAction(models.TextChoices):
     APIKEY_REVOKED = "apikey_revoked", _("API key revoked")
     INTEGRATION_CREATED = "integration_created", _("Integration created")
 
+    COMPANY_PROFILE_ANALYZED = "company_profile_analyzed", _("Company profile analyzed")
+    COMPANY_PROFILE_UPDATED = "company_profile_updated", _("Company profile edited")
+    COMPANY_PROFILE_CONFIRMED = "company_profile_confirmed", _("Company profile confirmed")
+
     CAMPAIGN_LAUNCHED = "campaign_launched", _("Campaign launched")
     CAMPAIGN_PAUSED = "campaign_paused", _("Campaign paused")
     AUTOPILOT_ENABLED = "autopilot_enabled", _("AI autopilot enabled")

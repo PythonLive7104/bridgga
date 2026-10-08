@@ -23,6 +23,7 @@ router.register("members", views.MembershipViewSet, basename="membership")
 router.register("invitations", views.InvitationViewSet, basename="invitation")
 router.register("audit-logs", views.AuditLogViewSet, basename="auditlog")
 router.register("billing/credits", views.CreditLedgerViewSet, basename="creditentry")
+router.register("intelligence/snapshots", views.WebsiteSnapshotViewSet, basename="websitesnapshot")
 
 urlpatterns = [
     path("me", views.MeView.as_view(), name="me"),
@@ -31,6 +32,28 @@ urlpatterns = [
         "invitations/accept",
         views.InvitationAcceptView.as_view(),
         name="invitation-accept",
+    ),
+    # A singleton: an organization has exactly one understanding of itself, so
+    # the action routes sit beside it rather than under a collection id.
+    path(
+        "intelligence/company-profile",
+        views.CompanyProfileView.as_view(),
+        name="company-profile",
+    ),
+    path(
+        "intelligence/company-profile/analyze",
+        views.CompanyProfileAnalyzeView.as_view(),
+        name="company-profile-analyze",
+    ),
+    path(
+        "intelligence/company-profile/reset",
+        views.CompanyProfileResetView.as_view(),
+        name="company-profile-reset",
+    ),
+    path(
+        "intelligence/company-profile/confirm",
+        views.CompanyProfileConfirmView.as_view(),
+        name="company-profile-confirm",
     ),
     path("billing/subscription", views.SubscriptionView.as_view(), name="subscription"),
     path("billing/balance", views.CreditBalanceView.as_view(), name="credit-balance"),

@@ -54,3 +54,78 @@ export interface Workspace {
   timezone: string;
   created_at: string;
 }
+
+export type ProfileStatus = "draft" | "analyzing" | "ready" | "confirmed" | "failed";
+
+export interface WebsiteSnapshotSummary {
+  id: string;
+  requested_url: string;
+  final_url: string;
+  status: string;
+  status_code: number | null;
+  error_reason: string;
+  title: string;
+  fetched_at: string | null;
+}
+
+export interface EvidenceItem {
+  claim: string;
+  source_type: string;
+  source_url: string;
+  quote: string;
+  retrieved_at: string | null;
+  confidence: string;
+}
+
+/** Per-field provenance: was it edited, and what did the agent say? */
+export interface FieldMeta {
+  edited: boolean;
+  ai_value: string | string[] | null;
+}
+
+export interface CompanyProfile {
+  id: string;
+  website: string;
+  company_name: string;
+  one_line_summary: string;
+  industry: string;
+  business_model: string;
+  value_proposition: string;
+  pricing_summary: string;
+  products: string[];
+  target_customers: string[];
+  use_cases: string[];
+  pain_points_solved: string[];
+  geographies: string[];
+  buyer_personas: string[];
+  competitors: string[];
+  evidence: EvidenceItem[];
+  unknowns: string[];
+  confidence: string;
+  status: ProfileStatus;
+  analysis_error: string;
+  prompt_pin: string;
+  last_analyzed_at: string | null;
+  confirmed_at: string | null;
+  edited_fields: string[];
+  sources: WebsiteSnapshotSummary[];
+  fields_meta: Record<string, FieldMeta>;
+  created_at: string;
+  updated_at: string;
+}
+
+/** The fields the agent writes, and therefore the editable surface. */
+export type CompanyProfileField =
+  | "company_name"
+  | "one_line_summary"
+  | "industry"
+  | "business_model"
+  | "value_proposition"
+  | "pricing_summary"
+  | "products"
+  | "target_customers"
+  | "use_cases"
+  | "pain_points_solved"
+  | "geographies"
+  | "buyer_personas"
+  | "competitors";

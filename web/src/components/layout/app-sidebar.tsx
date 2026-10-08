@@ -55,6 +55,12 @@ const NAV: NavGroup[] = [
     heading: "Find Customers",
     items: [
       {
+        href: "/company-profile",
+        label: "Your company",
+        icon: Building2,
+        capability: "company_profile.view",
+      },
+      {
         href: "/prospects",
         label: "Prospects",
         icon: Target,

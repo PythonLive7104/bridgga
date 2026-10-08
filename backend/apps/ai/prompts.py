@@ -95,7 +95,10 @@ def all_prompts() -> dict[str, Prompt]:
 COMPANY_PROFILE = register(
     Prompt(
         name="company_profile",
-        version=1,
+        # v2 added `use_cases` (PRD section 26) and the multi-page guidance
+        # below. Bumped rather than edited in place so a quality change can
+        # still be attributed: every AIJob records the version that produced it.
+        version=2,
         # Advanced tier: this is read once per customer at onboarding and
         # everything downstream -- ICP, targeting, messaging -- is built on it.
         # Saving a cent here to get a worse profile is a bad trade.
@@ -116,8 +119,15 @@ Specific guidance:
   named customers.
 - Record an `Evidence` entry for each of the main conclusions, with the page URL
   it came from.
+- `use_cases` are the concrete jobs customers hire this for, in the source's
+  own terms. Leave it empty rather than deriving plausible ones from the
+  product description.
 - List anything a salesperson would need but the site does not say in
   `unknowns`.
+
+The content may span several pages of one site, each introduced by its own
+`URL:` line. Treat them as one body of evidence about one company, and
+attribute each `Evidence` entry to the page it came from.
 """,
     )
 )

@@ -20,6 +20,8 @@ from apps.billing.models import CreditEntry, Subscription
 from apps.common.permissions import HasCapability, RequireOrganization
 from apps.common.tenancy import unscoped
 from apps.common.viewsets import TenantReadOnlyViewSet, TenantScopedViewSet
+from apps.intelligence import agents, tasks
+from apps.intelligence.models import ProfileStatus, WebsiteSnapshot
 from apps.organizations import services
 from apps.organizations.models import Invitation, Membership, Organization, Workspace
 from apps.organizations.roles import Capability, capabilities_for
@@ -348,3 +350,152 @@ class CreditLedgerViewSet(TenantReadOnlyViewSet):
     serializer_class = s.CreditEntrySerializer
     required_capability = Capability.BILLING_VIEW
     filterset_fields = ["reason", "feature"]
+
+
+class CompanyProfileView(APIView):
+    """The organization's own company profile (PRD section 26).
+
+    A singleton rather than a collection: an organization has exactly one
+    understanding of itself, so there is nothing to list and no id to address
+    it by. ``GET`` creates the empty record on first call so the onboarding UI
+    has something to render and bind a form to.
+    """
+
+    permission_classes = [RequireOrganization, HasCapability]
+    required_capability = Capability.COMPANY_PROFILE_VIEW
+    write_capability = Capability.COMPANY_PROFILE_MANAGE
+
+    @extend_schema(responses={200: s.CompanyProfileSerializer})
+    def get(self, request: Request) -> Response:
+        profile = agents.get_or_create_profile(organization=request.organization)
+        return Response(s.CompanyProfileSerializer(profile).data)
+
+    @extend_schema(request=s.CompanyProfileSerializer, responses={200: s.CompanyProfileSerializer})
+    def patch(self, request: Request) -> Response:
+        """Edit the profile. Every AI-written field is editable (PRD section 26)."""
+        profile = agents.get_or_create_profile(organization=request.organization)
+        serializer = s.CompanyProfileSerializer(profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        data = dict(serializer.validated_data)
+        website = data.pop("website", None)
+        changed = agents.apply_edits(profile=profile, data=data)
+
+        if website is not None and website != profile.website:
+            profile.website = website
+            profile.save(update_fields=["website", "updated_at"])
+
+        if changed:
+            record_audit(
+                organization=request.organization,
+                action=AuditAction.COMPANY_PROFILE_UPDATED,
+                actor=request.user,
+                target=profile,
+                # The field names, not the values: an audit log is read by
+                # people who may not be entitled to the contents.
+                metadata={"fields": changed},
+                request=request,
+            )
+
+        profile.refresh_from_db()
+        return Response(s.CompanyProfileSerializer(profile).data)
+
+
+class CompanyProfileAnalyzeView(APIView):
+    """Run the company-understanding agent against the organization's website."""
+
+    permission_classes = [RequireOrganization, HasCapability]
+    required_capability = Capability.COMPANY_PROFILE_MANAGE
+
+    @extend_schema(
+        request=s.CompanyProfileAnalyzeSerializer,
+        responses={202: s.CompanyProfileSerializer},
+    )
+    def post(self, request: Request) -> Response:
+        serializer = s.CompanyProfileAnalyzeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        website = serializer.validated_data.get("website", "")
+
+        profile = agents.get_or_create_profile(organization=request.organization)
+        if not (website or profile.website or request.organization.website):
+            raise ValidationError({"website": ["Provide a website to analyse."]})
+
+        record_audit(
+            organization=request.organization,
+            action=AuditAction.COMPANY_PROFILE_ANALYZED,
+            actor=request.user,
+            target=profile,
+            metadata={"website": website or profile.website},
+            request=request,
+        )
+
+        # Queued, not run inline: this crawls several pages and makes an
+        # advanced-tier model call, which is far longer than a request should
+        # hold open. The client polls GET for the status.
+        tasks.analyze_company_website.delay(request.organization.pk, website, request.user.pk)
+
+        profile.refresh_from_db()
+        return Response(s.CompanyProfileSerializer(profile).data, status=status.HTTP_202_ACCEPTED)
+
+
+class CompanyProfileResetView(APIView):
+    """Restore edited fields to what the agent produced."""
+
+    permission_classes = [RequireOrganization, HasCapability]
+    required_capability = Capability.COMPANY_PROFILE_MANAGE
+
+    @extend_schema(
+        request=s.CompanyProfileResetSerializer, responses={200: s.CompanyProfileSerializer}
+    )
+    def post(self, request: Request) -> Response:
+        serializer = s.CompanyProfileResetSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        profile = agents.get_or_create_profile(organization=request.organization)
+        restored = agents.reset_fields(profile=profile, fields=serializer.validated_data["fields"])
+        if restored:
+            record_audit(
+                organization=request.organization,
+                action=AuditAction.COMPANY_PROFILE_UPDATED,
+                actor=request.user,
+                target=profile,
+                metadata={"reset_fields": restored},
+                request=request,
+            )
+
+        profile.refresh_from_db()
+        return Response(s.CompanyProfileSerializer(profile).data)
+
+
+class CompanyProfileConfirmView(APIView):
+    """Onboarding step 3: the customer agrees the profile describes them."""
+
+    permission_classes = [RequireOrganization, HasCapability]
+    required_capability = Capability.COMPANY_PROFILE_MANAGE
+
+    @extend_schema(request=None, responses={200: s.CompanyProfileSerializer})
+    def post(self, request: Request) -> Response:
+        profile = agents.get_or_create_profile(organization=request.organization)
+        if profile.status not in {ProfileStatus.READY, ProfileStatus.CONFIRMED}:
+            raise ValidationError({"detail": "Analyse the website before confirming the profile."})
+
+        agents.confirm_profile(profile=profile)
+        record_audit(
+            organization=request.organization,
+            action=AuditAction.COMPANY_PROFILE_CONFIRMED,
+            actor=request.user,
+            target=profile,
+            request=request,
+        )
+        profile.refresh_from_db()
+        return Response(s.CompanyProfileSerializer(profile).data)
+
+
+class WebsiteSnapshotViewSet(TenantReadOnlyViewSet):
+    """Raw fetches, kept so any claim can still be traced to its source."""
+
+    queryset = WebsiteSnapshot.objects.all()
+    serializer_class = s.WebsiteSnapshotSerializer
+    required_capability = Capability.COMPANY_PROFILE_VIEW
+    filterset_fields = ["status"]
+    search_fields = ["requested_url", "title"]

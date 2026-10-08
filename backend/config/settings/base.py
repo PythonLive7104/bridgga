@@ -292,6 +292,12 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_TASK_DEFAULT_QUEUE = "default"
 CELERY_TASK_QUEUES_NAMES = ["default", "crawl", "enrich", "ai", "send", "analytics"]
 CELERY_TASK_ROUTES = {
+    # Declared before the wildcard below, which would otherwise claim it:
+    # Celery returns the first matching pattern, and dicts keep insertion
+    # order. This task does crawl, but the slow, rate-limited, costly part is
+    # the model call, and running it behind a crawl backlog makes onboarding
+    # look broken.
+    "apps.intelligence.tasks.analyze_company_website": {"queue": "ai"},
     "apps.intelligence.tasks.*": {"queue": "crawl"},
     "apps.companies.tasks.*": {"queue": "enrich"},
     "apps.leads.tasks.*": {"queue": "enrich"},

@@ -70,6 +70,11 @@ class CompanyProfile(StrictModel):
     )
     target_customers: list[str] = Field(default_factory=list, max_length=20)
     value_proposition: str = ""
+    use_cases: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Concrete jobs customers use this for, as the source describes them.",
+    )
     pain_points_solved: list[str] = Field(default_factory=list, max_length=20)
     pricing_summary: str = Field(default="", description="Empty if pricing is not published.")
     geographies: list[str] = Field(default_factory=list, max_length=30)
