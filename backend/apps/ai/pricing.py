@@ -124,6 +124,4 @@ def resolve_model(tier: Tier | str) -> ModelSpec:
 
 def micro_usd_to_minor_units(micro_usd: int) -> int:
     """Micro-dollars to cents, for the billing ledger's integer minor units."""
-    return int(
-        (Decimal(micro_usd) / Decimal(10_000)).to_integral_value(rounding="ROUND_HALF_UP")
-    )
+    return int((Decimal(micro_usd) / Decimal(10_000)).to_integral_value(rounding="ROUND_HALF_UP"))

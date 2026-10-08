@@ -82,6 +82,7 @@ LOCAL_APPS = [
     "apps.accounts",
     "apps.organizations",
     "apps.intelligence",
+    "apps.ai",
     "apps.audit",
     "apps.billing",
     "apps.api",
@@ -377,3 +378,25 @@ ORGANIZATION_HEADER = "X-Organization"
 
 # The admin lives at a non-guessable prefix in real environments.
 ADMIN_URL_PREFIX = env("ADMIN_URL_PREFIX", "admin").strip("/")
+
+# --------------------------------------------------------------------------- #
+# AI (PRD sections 56 to 59)
+# --------------------------------------------------------------------------- #
+
+# Blank auto-detects: the real provider when ANTHROPIC_API_KEY is set, the
+# deterministic stub otherwise. That keeps CI and a fresh checkout working
+# without credentials, and stops a test spending money by accident.
+AI_PROVIDER = os.environ.get("AI_PROVIDER", "")
+
+# Per-tier model routing override. Cheap models handle classification and
+# extraction; advanced models handle research and strategy. Setting a tier here
+# imposes a cost ceiling without a code change.
+AI_MODEL_TIERS = {
+    key: value
+    for key, value in {
+        "cheap": os.environ.get("AI_MODEL_CHEAP", ""),
+        "standard": os.environ.get("AI_MODEL_STANDARD", ""),
+        "advanced": os.environ.get("AI_MODEL_ADVANCED", ""),
+    }.items()
+    if value
+}

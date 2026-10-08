@@ -50,6 +50,7 @@ class AIRefused(AIProviderError):
     """The model declined the request. Not retryable -- retrying is the same ask."""
 
     retryable = False
+
     def __init__(self, message: str, category: str = "") -> None:
         super().__init__(message)
         self.category = category
@@ -125,7 +126,7 @@ class AIProvider(abc.ABC):
         cost estimate before a campaign launches, and that number is shown to
         a paying customer.
         """
-        characters = len(request.instructions) + len(request.cacheable_context) + len(
-            request.user_content
+        characters = (
+            len(request.instructions) + len(request.cacheable_context) + len(request.user_content)
         )
         return characters // 4
