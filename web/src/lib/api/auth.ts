@@ -85,12 +85,47 @@ async function authFetch(
   });
 
   const text = await response.text();
-  const payload: AuthResponse = text
-    ? (JSON.parse(text) as AuthResponse)
-    : { status: response.status };
+
+  let payload: AuthResponse;
+  try {
+    payload = text ? (JSON.parse(text) as AuthResponse) : { status: response.status };
+  } catch {
+    // Not JSON. In practice this is one of Django's HTML error pages, and
+    // most often a CSRF rejection -- which used to throw a raw SyntaxError
+    // out of here, bypass the AuthError branch in every caller, and surface
+    // as "Something went wrong", hiding a precise message the server had
+    // already sent. Turn it into a reportable error instead.
+    throw new AuthError(response.status, {
+      status: response.status,
+      errors: [
+        {
+          message: describeNonJsonFailure(response.status, text),
+          code: "non_json_response",
+        },
+      ],
+    });
+  }
 
   if (!response.ok) throw new AuthError(response.status, payload);
   return payload;
+}
+
+/** A useful sentence from an HTML error page the API should not have sent. */
+function describeNonJsonFailure(status: number, body: string): string {
+  if (status === 403 && body.includes("CSRF")) {
+    return (
+      "The server rejected this request as coming from an untrusted origin. " +
+      "If you are reaching the app by IP address or from another device, add " +
+      "that origin to CSRF_TRUSTED_ORIGINS."
+    );
+  }
+  if (status === 404) {
+    return "The authentication endpoint was not found. Is the backend running?";
+  }
+  if (status >= 500) {
+    return "The server could not complete the request. Check the backend logs.";
+  }
+  return `The server returned ${status} with an unexpected response.`;
 }
 
 /**
