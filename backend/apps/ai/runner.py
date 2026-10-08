@@ -68,6 +68,31 @@ def wrap_untrusted(content: str) -> str:
     return f"{UNTRUSTED_HEADER}{content}{UNTRUSTED_FOOTER}"
 
 
+def build_completion_request(
+    *,
+    prompt: Prompt,
+    user_content: str,
+    cacheable_context: str = "",
+    untrusted: bool = True,
+) -> CompletionRequest:
+    """Assemble the exact request production would send.
+
+    Shared with the eval harness, so an eval exercises the real prompt text and
+    the real untrusted-content fencing rather than a copy that can drift.
+    """
+    return CompletionRequest(
+        instructions=prompt.render_instructions(),
+        user_content=wrap_untrusted(user_content) if untrusted else user_content,
+        cacheable_context=(
+            wrap_untrusted(cacheable_context)
+            if (untrusted and cacheable_context)
+            else cacheable_context
+        ),
+        output_schema=prompt.output_schema,
+        max_output_tokens=prompt.max_output_tokens,
+    )
+
+
 def run_prompt(
     *,
     organization: Any,
@@ -99,12 +124,13 @@ def run_prompt(
         subject_type = f"{subject._meta.app_label}.{subject._meta.object_name}"
         subject_id = str(getattr(subject, "public_id", "") or subject.pk)
 
-    body = wrap_untrusted(user_content) if untrusted else user_content
-    context = (
-        wrap_untrusted(cacheable_context)
-        if (untrusted and cacheable_context)
-        else cacheable_context
+    request = build_completion_request(
+        prompt=prompt,
+        user_content=user_content,
+        cacheable_context=cacheable_context,
+        untrusted=untrusted,
     )
+    body = request.user_content
 
     with tenant_context(organization=organization):
         job = AIJob.objects.create(
@@ -119,14 +145,6 @@ def run_prompt(
             subject_type=subject_type,
             subject_id=subject_id,
             requested_by=requested_by if getattr(requested_by, "pk", None) else None,
-        )
-
-        request = CompletionRequest(
-            instructions=prompt.render_instructions(),
-            user_content=body,
-            cacheable_context=context,
-            output_schema=prompt.output_schema,
-            max_output_tokens=prompt.max_output_tokens,
         )
 
         last_error: Exception | None = None
@@ -246,12 +264,8 @@ def estimate_cost_micro_usd(
     spec = resolve_model(prompt.tier)
     provider = provider or get_provider()
 
-    request = CompletionRequest(
-        instructions=prompt.render_instructions(),
-        user_content=user_content,
-        cacheable_context=cacheable_context,
-        output_schema=prompt.output_schema,
-        max_output_tokens=prompt.max_output_tokens,
+    request = build_completion_request(
+        prompt=prompt, user_content=user_content, cacheable_context=cacheable_context
     )
     input_tokens = provider.count_tokens(request, spec=spec)
     return spec.cost_micro_usd(input_tokens=input_tokens, output_tokens=expected_output_tokens)
