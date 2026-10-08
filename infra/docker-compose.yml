@@ -34,11 +34,15 @@ x-backend-env: &backend_env
   AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-bridgga}
   AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-bridgga-dev-secret}
   AWS_STORAGE_BUCKET_NAME: ${AWS_STORAGE_BUCKET_NAME:-bridgga-dev}
-  # Unset keys mean the stub AI provider: schema-valid placeholders, no spend.
-  # Put real keys in infra/.env.
-  AI_PROVIDER: ${AI_PROVIDER:-stub}
-  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  # Application settings -- AI provider and keys, mail, feature switches --
+  # are deliberately NOT listed here. They live in backend/.env, which the
+  # settings module loads for every process.
+  #
+  # Listing them meant compose injected `OPENAI_API_KEY=""` into the
+  # container. An empty string still *exists* in the environment, so
+  # load_dotenv (which never overrides) skipped the real value sitting in
+  # backend/.env, and the AI layer quietly ran on the stub with a valid key
+  # on disk. Only values that must point at a compose service belong above.
 
 x-backend-build: &backend_build
   context: ..

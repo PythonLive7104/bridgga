@@ -11,8 +11,21 @@ import os
 from pathlib import Path
 
 import dj_database_url
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parents[2]
+
+# backend/.env is the application's configuration, and it is loaded here --
+# in the settings module every entrypoint imports -- rather than in manage.py.
+# Loaded only from manage.py, it reached `runserver` and nothing else: not
+# gunicorn, not the Celery worker, not beat. The worker would then run the
+# same code against different settings from the web process, which is a
+# difficult thing to notice and a worse thing to debug.
+#
+# `override=False` is the default and is the behaviour we want: a variable
+# already set in the real environment wins. On a server the process manager
+# supplies them; the file is the fallback.
+load_dotenv(BASE_DIR / ".env", override=False)
 
 
 def env(key: str, default: str | None = None) -> str:

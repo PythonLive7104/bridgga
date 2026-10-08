@@ -144,6 +144,32 @@ REDIS_URL=redis://localhost:6379/0
 Note the host differs by where the client runs: `db` is the hostname inside the
 compose network, `localhost` from a process on your machine.
 
+## Configuration, and what goes on a server
+
+Two env files, with different jobs:
+
+| File | Read by | Holds |
+|---|---|---|
+| `backend/.env` | the Django settings module, so **every** process: web, Celery worker, beat, management commands | application config — secret key, `DATABASE_URL`, `REDIS_URL`, AI keys, mail, account policy |
+| `infra/.env` | `docker compose` only | the local stack — host ports, the Postgres container's own credentials |
+
+`backend/.env` is the file to put on a server. Nothing else carries
+application config, and a variable already set in the real environment always
+wins over it, so a process manager or secrets store can override any line
+without editing the file.
+
+Two things to know:
+
+- **Hostnames differ by vantage point.** `localhost:5432` from a process on
+  your machine, `db:5432` from inside the compose network, the real host on a
+  server. The same applies to Redis. `backend/.env.example` spells out which
+  line you want.
+- **Do not add application settings to `docker-compose.yml`.** A variable
+  named there is injected into the container even when empty, and an empty
+  value still counts as set — so it silently shadows the real one in
+  `backend/.env`. Only values that must point at a compose service
+  (`DATABASE_URL`, `REDIS_URL`, `EMAIL_HOST`) belong there.
+
 ## Checks
 
 ```bash
