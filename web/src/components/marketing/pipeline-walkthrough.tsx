@@ -242,7 +242,7 @@ const STEPS: Step[] = [
             { label: "Qualified", value: "38" },
             { label: "Meetings", value: "17" },
             { label: "Customers", value: "6" },
-            { label: "Pipeline", value: "₦41.2M" },
+            { label: "Pipeline", value: "$124K" },
           ].map((stat) => (
             <div
               key={stat.label}

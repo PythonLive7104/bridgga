@@ -5,7 +5,6 @@ import { PipelineWalkthrough } from "@/components/marketing/pipeline-walkthrough
 import {
   AfricaSection,
   AgentSection,
-  DesignPartnerSection,
   EvidenceSection,
   FaqSection,
   FinalCtaSection,
@@ -50,7 +49,6 @@ export default function HomePage() {
       <RevenueSection />
       <AfricaSection />
       <IntegrationsSection />
-      <DesignPartnerSection />
       <FaqSection />
       <FinalCtaSection />
     </>

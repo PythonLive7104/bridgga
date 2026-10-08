@@ -401,7 +401,7 @@ export function RevenuePanel() {
             { label: "Qualified", value: "38" },
             { label: "Meetings", value: "17" },
             { label: "Customers", value: "6" },
-            { label: "Pipeline", value: "₦41.2M" },
+            { label: "Pipeline", value: "$124K" },
           ].map((stat) => (
             <div key={stat.label} className="bg-surface px-4 py-5 text-center">
               <div className="tabular text-2xl font-semibold text-fg">{stat.value}</div>
