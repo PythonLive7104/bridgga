@@ -35,6 +35,7 @@ class PlanTier(models.TextChoices):
 
 class PaymentProvider(models.TextChoices):
     # African payment rails first (PRD section 67).
+    BACHS = "bachs", _("Bachs")
     PAYSTACK = "paystack", _("Paystack")
     FLUTTERWAVE = "flutterwave", _("Flutterwave")
     STRIPE = "stripe", _("Stripe")
