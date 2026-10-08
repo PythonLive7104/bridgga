@@ -80,7 +80,11 @@ jobs:
         run: python manage.py check --deploy --fail-level WARNING
         env:
           DJANGO_SETTINGS_MODULE: config.settings.prod
-          DJANGO_SECRET_KEY: ci-only-secret
+          # Long enough to satisfy security.W009. The step runs with
+          # --fail-level WARNING, so a short throwaway secret fails the build
+          # on the very check it exists to perform. Not a real secret: it is
+          # public in this file and only lets the prod settings import.
+          DJANGO_SECRET_KEY: ci-only-not-a-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
           DJANGO_ALLOWED_HOSTS: example.com
           AWS_STORAGE_BUCKET_NAME: ci-bucket
           EMAIL_HOST: smtp.example.com

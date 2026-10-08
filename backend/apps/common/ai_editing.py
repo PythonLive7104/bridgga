@@ -19,33 +19,32 @@ next time their website changed.
 
 from __future__ import annotations
 
-from typing import Any, TypeVar
+from typing import Any
 
 from django.db import transaction
-from pydantic import BaseModel
 
 from apps.common.models import AIEditableModel
 from apps.common.tenancy import tenant_context
 
-ModelT = TypeVar("ModelT", bound=AIEditableModel)
-
 
 @transaction.atomic
-def apply_ai_output(
+def apply_ai_output[ModelT: AIEditableModel](
     *,
     record: ModelT,
-    output: BaseModel,
+    values: dict[str, Any],
     extra: dict[str, Any] | None = None,
 ) -> ModelT:
     """Write agent output into a record, preserving human edits.
+
+    Takes a plain dict rather than the schema object, because an agent may need
+    to reshape its output first -- the ICP's buyer profile arrives nested and
+    is stored flat, so each part stays separately editable.
 
     ``extra`` carries the fields that are the system's account of the run --
     evidence, confidence, timestamps, the prompt version. They are not part of
     ``AI_FIELDS`` because they are never edited by hand: they describe what
     happened, not what is true about the business.
     """
-    values = output.model_dump(mode="json")
-
     with tenant_context(organization=record.organization):
         ai_values: dict[str, Any] = {}
         for field in type(record).AI_FIELDS:
@@ -63,7 +62,7 @@ def apply_ai_output(
 
 
 @transaction.atomic
-def apply_edits(*, record: ModelT, data: dict[str, Any]) -> list[str]:
+def apply_edits[ModelT: AIEditableModel](*, record: ModelT, data: dict[str, Any]) -> list[str]:
     """Apply human edits and record which fields they touched.
 
     Returns the fields that actually changed. A value re-submitted unchanged
@@ -91,7 +90,7 @@ def apply_edits(*, record: ModelT, data: dict[str, Any]) -> list[str]:
 
 
 @transaction.atomic
-def reset_fields(*, record: ModelT, fields: list[str]) -> list[str]:
+def reset_fields[ModelT: AIEditableModel](*, record: ModelT, fields: list[str]) -> list[str]:
     """Drop a human edit and restore what the agent said.
 
     Needed because an edit is otherwise permanent: once a field is marked
