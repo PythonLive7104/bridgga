@@ -2,6 +2,7 @@
 
 import { Bell, Search } from "lucide-react";
 
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { useSession } from "@/lib/hooks/use-session";
 
@@ -47,6 +48,7 @@ export function AppTopbar() {
         >
           <Bell className="size-4" />
         </button>
+        <ThemeToggle />
         <div
           aria-hidden
           className="ml-1 grid size-8 place-items-center rounded-full bg-accent-subtle text-xs font-semibold text-accent"

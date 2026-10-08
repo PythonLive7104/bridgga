@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { ThemeToggle } from "@/components/theme-toggle";
+
 /**
  * Minimal header: wordmark, a short nav, one primary action.
  *
@@ -41,6 +43,7 @@ export function SiteHeader() {
         </nav>
 
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           <Link
             href="/auth/login"
             className="hidden rounded-md px-3 py-2 text-sm text-fg-muted transition-colors hover:text-fg sm:block"

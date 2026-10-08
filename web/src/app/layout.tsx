@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 
 import { Providers } from "@/app/providers";
+import { ThemeScript } from "@/components/theme-toggle";
 
 import "./globals.css";
 
@@ -44,6 +45,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
+      <head>
+        <ThemeScript />
+      </head>
       <body>
         {/* First stop for keyboard users (PRD section 112). */}
         <a

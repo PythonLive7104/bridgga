@@ -29,7 +29,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # Hardcoded credentials in tests and in the test settings module are the point.
-"tests/*" = ["S105", "S106", "S107", "S311"]
+# S104 likewise: the SSRF tests list "0.0.0.0" as an address that must be
+# *refused*, which is the opposite of binding to it.
+"tests/*" = ["S104", "S105", "S106", "S107", "S311"]
 "config/settings/test.py" = ["F403", "F405", "S105"]
 "*/migrations/*" = ["E501"]
 "config/settings/*" = ["F403", "F405"]

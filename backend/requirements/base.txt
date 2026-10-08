@@ -35,3 +35,9 @@ sentry-sdk[django]>=2.40
 
 # Security
 argon2-cffi>=25.1
+
+# Website analysis (Phase 2). httpx gives per-request timeouts, streaming
+# (needed to enforce a response-size cap) and manual redirect control, which
+# the SSRF guard depends on.
+httpx>=0.28
+beautifulsoup4>=4.14

@@ -81,6 +81,7 @@ LOCAL_APPS = [
     "apps.common",
     "apps.accounts",
     "apps.organizations",
+    "apps.intelligence",
     "apps.audit",
     "apps.billing",
     "apps.api",
