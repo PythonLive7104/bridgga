@@ -1,4 +1,4 @@
-# Palatial — Build Process Plan
+# Bridgga — Build Process Plan
 
 Derived from `prd.md` (AI Customer Acquisition OS, v1.0). Section references like **§32** point at PRD sections.
 
@@ -22,7 +22,7 @@ Do not start Phase 1 until these are answered in writing. Each is expensive to r
 | A8 | Brand name + domain | Decide now — §133 leaves it open | Blocks DNS, SPF/DKIM, OAuth app registration, and payment KYC. |
 
 ```text
-palatial/
+bridgga/
 ├─ backend/
 │  ├─ config/                 # split settings, celery.py, urls, asgi
 │  ├─ apps/                   # per §79
@@ -75,7 +75,7 @@ PRD §127 is explicit: prove the workflow by hand first.
 | Step | Work |
 |---|---|
 | 1.1 | `git init`; monorepo scaffold; pnpm workspace; `uv` or Poetry; pre-commit (ruff, black, mypy, eslint, prettier) |
-| 1.2 | `infra/docker-compose.yml`: postgres, redis, backend, worker, beat, mailhog, minio |
+| 1.2 | `infra/docker-compose.yml`: postgres, redis, backend, worker, beat, web, flower, mailhog, object storage. See [ADR 0007](docs/adr/0007-containers.md) — MinIO was dropped for SeaweedFS |
 | 1.3 | Django config: split settings, env parsing, structlog JSON logging, Sentry, health endpoints |
 | 1.4 | `accounts`: custom User, UUID public IDs (§80). `organizations`: Organization, Workspace, Membership, the five roles (§66) |
 | 1.5 | **Tenancy primitives**: `TenantOwnedModel`, tenant-scoped manager, request-scoped org resolver, `TenantScopedViewSet`, object-level permission classes |

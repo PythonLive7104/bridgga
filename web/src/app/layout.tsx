@@ -17,14 +17,14 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "Palatial — AI Customer Acquisition OS",
-    template: "%s | Palatial",
+    default: "Bridgga — AI Customer Acquisition OS",
+    template: "%s | Bridgga",
   },
   description:
     "Find the companies most likely to need what you sell, reach the right decision makers, and connect every conversation to revenue.",
   openGraph: {
     type: "website",
-    siteName: "Palatial",
+    siteName: "Bridgga",
     locale: "en",
   },
   robots: { index: true, follow: true },

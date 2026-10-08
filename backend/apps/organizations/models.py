@@ -204,7 +204,7 @@ class Invitation(TenantOwnedModel):
 
         # Keyed hash, so a stolen database cannot be brute-forced offline
         # without also stealing SECRET_KEY.
-        return salted_hmac("palatial.invitation", raw_token).hexdigest()
+        return salted_hmac("bridgga.invitation", raw_token).hexdigest()
 
     @classmethod
     def issue(

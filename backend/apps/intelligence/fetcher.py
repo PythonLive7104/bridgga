@@ -64,7 +64,7 @@ ALLOWED_CONTENT_TYPES = (
     "application/xml",
 )
 
-USER_AGENT = "PalatialBot/0.1 (+https://palatial.example/bot)"
+USER_AGENT = "BridggaBot/0.1 (+https://bridgga.example/bot)"
 
 # Names that conventionally resolve to infrastructure. DNS checks catch most of
 # this, but an internal resolver can map these to public-looking addresses.

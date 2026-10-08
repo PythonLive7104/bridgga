@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
  * under the dark media query handles system, and absence means system.
  */
 
-export const THEME_STORAGE_KEY = "palatial-theme";
+export const THEME_STORAGE_KEY = "bridgga-theme";
 
 type Theme = "system" | "light" | "dark";
 

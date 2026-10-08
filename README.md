@@ -1,4 +1,4 @@
-# Palatial — AI Customer Acquisition OS
+# Bridgga — AI Customer Acquisition OS
 
 Find the companies most likely to need what you sell, reach the right decision
 makers, start relevant conversations, and connect acquisition activity to
@@ -8,10 +8,12 @@ revenue.
 - [BUILD_PLAN.md](BUILD_PLAN.md) — phased build process
 - [docs/adr/](docs/adr/) — architecture decisions and why
 
-**Status: Phase 1 (Foundation) complete.** Auth, organizations, workspaces,
-roles, tenancy, audit log, billing models, API skeleton, Celery queues, the
-design system and the marketing site are in. No prospects, campaigns or AI yet
-— that is Phase 2 onward.
+**Status: Phase 2 (Intelligence) in progress.** Phase 1 is complete — auth,
+organizations, workspaces, roles, tenancy, audit log, billing models, API
+skeleton, Celery queues, the design system and the marketing site. Phase 2 has
+the SSRF-hardened website fetcher, the AI layer (providers, versioned prompt
+registry, cost ledger) and the eval harness. Next: the company-understanding
+agent. No prospects or campaigns yet.
 
 ---
 
@@ -20,7 +22,7 @@ design system and the marketing site are in. No prospects, campaigns or AI yet
 ```text
 backend/     Django 6.0 + DRF. Apps under backend/apps/, config in backend/config/
 web/         Next.js 15 App Router: (marketing), (app) and auth route groups
-infra/       docker-compose and Dockerfile
+infra/       docker-compose, Dockerfiles, entrypoint
 docs/adr/    Architecture decision records
 ```
 
@@ -60,14 +62,86 @@ The app expects the backend on `http://localhost:8000` and proxies to it
 same-origin, so the session cookie and CSRF work without cross-site cookie
 settings.
 
-### Full stack with Postgres and Redis
+### Everything at once, in Docker
+
+One command, from the repository root:
 
 ```bash
-docker compose -f infra/docker-compose.yml up
+docker compose -f infra/docker-compose.yml up --build
 ```
 
-Brings up Postgres, Redis, the API, a Celery worker, beat, MailHog
-(`:8025`, catches outbound mail) and MinIO (`:9001`).
+That builds and starts all ten services. First run takes a few minutes; after
+that drop `--build` unless a dependency changed.
+
+| | |
+|---|---|
+| http://localhost:3000 | the app and marketing site |
+| http://localhost:8000 | the API directly (the app reaches it through the proxy) |
+| http://localhost:8025 | MailHog — every verification and invitation mail lands here |
+| http://localhost:5555 | Flower — Celery queues and task history |
+| http://localhost:8888 | SeaweedFS filer — browse what the app uploaded |
+| localhost:5432 | Postgres, as `bridgga` / `bridgga` |
+
+Migrations run automatically on boot, in the `backend` container only — see
+`infra/entrypoint.backend.sh` for why the worker and beat must not.
+
+Day-to-day:
+
+```bash
+# Follow logs (all services, or one)
+docker compose -f infra/docker-compose.yml logs -f
+docker compose -f infra/docker-compose.yml logs -f backend worker
+
+# Any manage.py command
+docker compose -f infra/docker-compose.yml exec backend python manage.py createsuperuser
+docker compose -f infra/docker-compose.yml exec backend python manage.py seed_plans
+
+# Tests, against Postgres rather than the SQLite fallback
+docker compose -f infra/docker-compose.yml exec backend python -m pytest -q
+
+# Stop; add -v to also discard the database and uploads
+docker compose -f infra/docker-compose.yml down
+```
+
+Source is bind-mounted, so an edit on the host reloads in the container: Django
+through its autoreloader, Next through `next dev`. Only a dependency change
+needs a rebuild.
+
+Development credentials are committed in `infra/docker-compose.yml` on purpose.
+Override anything real in `infra/.env` (gitignored, read automatically) —
+`infra/.env.example` lists what is worth setting, including a Resend API key if
+you want real mail instead of MailHog.
+
+### Or natively, one terminal each
+
+If you would rather not run the app in Docker, the two commands you expect work
+from their own directories — this is the layout the project is in:
+
+```bash
+# terminal 1
+cd backend && .venv/Scripts/python manage.py runserver
+
+# terminal 2
+cd web && npm run dev
+```
+
+With no `DATABASE_URL` or `REDIS_URL` set, that uses the SQLite and in-process
+Celery fallbacks and needs no containers at all. To keep native servers but get
+real Postgres and Redis, start only the infrastructure:
+
+```bash
+docker compose -f infra/docker-compose.yml up -d db redis mailhog storage storage-init
+```
+
+then put this in `backend/.env`:
+
+```bash
+DATABASE_URL=postgresql://bridgga:bridgga@localhost:5432/bridgga
+REDIS_URL=redis://localhost:6379/0
+```
+
+Note the host differs by where the client runs: `db` is the hostname inside the
+compose network, `localhost` from a process on your machine.
 
 ## Checks
 

@@ -178,7 +178,7 @@ ACCOUNT_LOGIN_BY_CODE_ENABLED = True
 ACCOUNT_LOGIN_BY_CODE_TIMEOUT = 600
 
 MFA_SUPPORTED_TYPES = ["totp", "recovery_codes"]
-MFA_TOTP_ISSUER = env("MFA_TOTP_ISSUER", "Palatial")
+MFA_TOTP_ISSUER = env("MFA_TOTP_ISSUER", "Bridgga")
 
 SOCIALACCOUNT_PROVIDERS = {
     "google": {
@@ -253,7 +253,7 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "Palatial API",
+    "TITLE": "Bridgga API",
     "DESCRIPTION": "AI Customer Acquisition OS — tenant-scoped REST API.",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
@@ -308,7 +308,7 @@ CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": env("CACHE_URL", REDIS_URL),
-        "KEY_PREFIX": "palatial",
+        "KEY_PREFIX": "bridgga",
     }
 }
 
@@ -347,7 +347,7 @@ CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", FRONTEND_URL)
 
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
-SESSION_COOKIE_NAME = "palatial_session"
+SESSION_COOKIE_NAME = "bridgga_session"
 SESSION_ENGINE = "django.contrib.sessions.backends.db"
 CSRF_COOKIE_HTTPONLY = False  # the SPA must read it to echo X-CSRFToken
 CSRF_COOKIE_SAMESITE = "Lax"

@@ -14,7 +14,7 @@ from kombu import Queue
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.dev")
 
-app = Celery("palatial")
+app = Celery("bridgga")
 app.config_from_object("django.conf:settings", namespace="CELERY")
 
 app.conf.task_queues = [

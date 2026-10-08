@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { WordmarkLink } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 /**
@@ -20,15 +21,7 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-border/70 bg-bg/80 backdrop-blur-md">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-6 px-4">
-        <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
-          <span
-            aria-hidden
-            className="grid size-7 place-items-center rounded-lg bg-accent text-xs font-bold text-accent-fg"
-          >
-            P
-          </span>
-          Palatial
-        </Link>
+        <WordmarkLink height={30} priority />
 
         <nav aria-label="Main" className="hidden items-center gap-1 md:flex">
           {NAV.map((item) => (

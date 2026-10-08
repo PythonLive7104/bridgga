@@ -26,12 +26,12 @@ if TYPE_CHECKING:
     from apps.organizations.models import Organization, Workspace
 
 _active_organization_id: ContextVar[int | None] = ContextVar(
-    "palatial_active_organization_id", default=None
+    "bridgga_active_organization_id", default=None
 )
 _active_workspace_id: ContextVar[int | None] = ContextVar(
-    "palatial_active_workspace_id", default=None
+    "bridgga_active_workspace_id", default=None
 )
-_scope_bypassed: ContextVar[bool] = ContextVar("palatial_scope_bypassed", default=False)
+_scope_bypassed: ContextVar[bool] = ContextVar("bridgga_scope_bypassed", default=False)
 
 
 class TenantScopeError(RuntimeError):

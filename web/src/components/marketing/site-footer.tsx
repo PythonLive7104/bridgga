@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { Wordmark } from "@/components/brand";
+
 /**
  * Multi-column footer.
  *
@@ -101,10 +103,16 @@ export function SiteFooter() {
         </div>
 
         <div className="mt-12 flex flex-col gap-4 border-t border-border pt-6 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-fg-subtle">
-            &copy; {new Date().getFullYear()} Palatial. Built for African businesses.
-            Ready for the world.
-          </p>
+          <div className="flex flex-col gap-3">
+            {/* Not a link: the footer already carries one home, and a second
+                identical destination is an extra stop for keyboard and screen
+                reader users without adding a way to get anywhere new. */}
+            <Wordmark height={22} className="opacity-80" />
+            <p className="text-sm text-fg-subtle">
+              &copy; {new Date().getFullYear()} Bridgga. Built for African businesses.
+              Ready for the world.
+            </p>
+          </div>
           <p className="text-sm text-fg-subtle">
             Compliant outreach only. We do not sell scraped personal data.
           </p>

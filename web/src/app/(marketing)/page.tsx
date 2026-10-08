@@ -18,10 +18,10 @@ import {
 export const metadata: Metadata = {
   title: "Turn your website into a customer acquisition engine",
   description:
-    "Palatial finds the companies most likely to need your product, identifies the right decision makers, starts relevant conversations, and connects every conversation to revenue.",
+    "Bridgga finds the companies most likely to need your product, identifies the right decision makers, starts relevant conversations, and connects every conversation to revenue.",
   alternates: { canonical: "/" },
   openGraph: {
-    title: "Palatial — turn your website into a customer acquisition engine",
+    title: "Bridgga — turn your website into a customer acquisition engine",
     description:
       "AI finds the companies most likely to need your product, identifies the right decision makers, and connects every conversation to revenue. Built for African businesses.",
     url: "/",

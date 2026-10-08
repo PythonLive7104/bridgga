@@ -19,6 +19,8 @@ import {
   Wallet,
 } from "lucide-react";
 import Link from "next/link";
+
+import { WordmarkLink } from "@/components/brand";
 import { usePathname } from "next/navigation";
 import * as React from "react";
 
@@ -152,18 +154,7 @@ export function AppSidebar() {
       aria-label="Main"
       className="flex h-full w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-border bg-bg-subtle px-3 py-4"
     >
-      <Link
-        href="/dashboard"
-        className="flex items-center gap-2 px-2 font-semibold tracking-tight"
-      >
-        <span
-          aria-hidden
-          className="grid size-7 place-items-center rounded-lg bg-accent text-xs font-bold text-accent-fg"
-        >
-          P
-        </span>
-        Palatial
-      </Link>
+      <WordmarkLink href="/dashboard" height={26} className="px-2" />
 
       {NAV.map((group, groupIndex) => {
         // While the session loads, show everything rather than flashing a

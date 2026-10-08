@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-_CACHE_ATTR = "_palatial_tenant_resolved"
+_CACHE_ATTR = "_bridgga_tenant_resolved"
 
 
 class InvalidOrganizationHeader(APIException):

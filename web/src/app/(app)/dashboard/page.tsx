@@ -54,7 +54,7 @@ export default function DashboardPage() {
       <EmptyState
         className="mt-10"
         title="Create your organization to get started"
-        description="Everything in Palatial belongs to an organization: your prospects, campaigns, pipeline and billing. Create one and we will read your website to draft an ICP."
+        description="Everything in Bridgga belongs to an organization: your prospects, campaigns, pipeline and billing. Create one and we will read your website to draft an ICP."
         action={
           <Link
             href="/onboarding"

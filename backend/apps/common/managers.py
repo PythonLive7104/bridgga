@@ -29,7 +29,7 @@ class TenantQuerySet(models.QuerySet):
     def unscoped(self) -> Self:
         """Opt out of automatic scoping for this queryset only."""
         clone = self._chain()
-        clone._palatial_unscoped = True  # type: ignore[attr-defined]
+        clone._bridgga_unscoped = True  # type: ignore[attr-defined]
         return clone
 
 
