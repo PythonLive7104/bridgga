@@ -44,5 +44,7 @@ beautifulsoup4>=4.14
 
 # AI layer (Phase 2). pydantic validates every model output against a schema
 # before it reaches the database.
+# Both providers are installed; which one runs is a settings decision.
 anthropic>=0.69
+openai>=3.26
 pydantic>=2.12
