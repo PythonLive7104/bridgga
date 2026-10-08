@@ -161,7 +161,18 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # allauth: the whole of PRD section 23 except SSO/SAML, which is Phase 7.
 ACCOUNT_LOGIN_METHODS = {"email"}
+# Our User model has no username column (PRD section 23: email is the
+# identity). Without this, allauth keeps its default of "username" and
+# BaseSignupForm asks the model for a field that does not exist, so every
+# signup request -- HTML or headless -- raises FieldDoesNotExist and
+# returns a 500 before validation even begins.
+ACCOUNT_USER_MODEL_USERNAME_FIELD = None
 ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*", "password2*"]
+# Name fields. SIGNUP_FIELDS above only understands allauth's own
+# identifiers, so anything extra arrives through this form -- which
+# BaseSignupForm inherits from, and which the headless API therefore
+# picks up as well, so the JSON endpoint accepts and stores them too.
+ACCOUNT_SIGNUP_FORM_CLASS = "apps.accounts.forms.SignupForm"
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 ACCOUNT_EMAIL_SUBJECT_PREFIX = ""
 ACCOUNT_UNIQUE_EMAIL = True

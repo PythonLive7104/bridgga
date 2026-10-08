@@ -8,6 +8,7 @@ import { SocialAuthButtons } from "@/components/layout/social-auth-buttons";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordField } from "@/components/ui/password-field";
 import {
   AuthError,
   authenticateMfa,
@@ -72,8 +73,8 @@ export default function LoginPage() {
 
   return (
     <div className="space-y-6">
-      <div className="text-center">
-        <h1 className="text-2xl font-semibold tracking-tight text-fg">Sign in</h1>
+      <div>
+        <h1 className="text-3xl font-semibold tracking-tight text-fg">Sign in</h1>
         <p className="mt-1.5 text-sm text-fg-muted">
           Welcome back. Pick up where your pipeline left off.
         </p>
@@ -108,9 +109,8 @@ export default function LoginPage() {
                 error={fieldErrors.email}
                 onChange={(event) => setEmail(event.target.value)}
               />
-              <Input
+              <PasswordField
                 label="Password"
-                type="password"
                 name="password"
                 autoComplete="current-password"
                 required

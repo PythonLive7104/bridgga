@@ -109,8 +109,17 @@ export function login(email: string, password: string): Promise<AuthResponse> {
   return authFetch("/auth/login", "POST", { email, password });
 }
 
-export function signup(email: string, password: string): Promise<AuthResponse> {
-  return authFetch("/auth/signup", "POST", { email, password });
+export interface SignupFields {
+  email: string;
+  password: string;
+  /** Optional, and accepted by the headless endpoint through
+   *  ACCOUNT_SIGNUP_FORM_CLASS -- see apps.accounts.forms.SignupForm. */
+  first_name?: string;
+  last_name?: string;
+}
+
+export function signup(fields: SignupFields): Promise<AuthResponse> {
+  return authFetch("/auth/signup", "POST", { ...fields });
 }
 
 export function logout(): Promise<AuthResponse> {
