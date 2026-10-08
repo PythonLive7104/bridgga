@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "api:generate": "openapi-typescript ../backend/schema.yml -o src/lib/api/generated/schema.d.ts"
+    "api:generate": "openapi-typescript ../backend/schema.yml -o src/lib/api/generated/schema.d.ts",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\""
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.2",

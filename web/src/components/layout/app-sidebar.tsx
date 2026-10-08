@@ -52,8 +52,18 @@ const NAV: NavGroup[] = [
   {
     heading: "Find Customers",
     items: [
-      { href: "/prospects", label: "Prospects", icon: Target, capability: "prospect.view" },
-      { href: "/companies", label: "Companies", icon: Building2, capability: "prospect.view" },
+      {
+        href: "/prospects",
+        label: "Prospects",
+        icon: Target,
+        capability: "prospect.view",
+      },
+      {
+        href: "/companies",
+        label: "Companies",
+        icon: Building2,
+        capability: "prospect.view",
+      },
       { href: "/signals", label: "Signals", icon: Radar, capability: "prospect.view" },
       { href: "/icp", label: "ICP", icon: Sparkles, capability: "prospect.view" },
     ],
@@ -61,7 +71,12 @@ const NAV: NavGroup[] = [
   {
     heading: "Engage",
     items: [
-      { href: "/campaigns", label: "Campaigns", icon: Sparkles, capability: "campaign.view" },
+      {
+        href: "/campaigns",
+        label: "Campaigns",
+        icon: Sparkles,
+        capability: "campaign.view",
+      },
       { href: "/inbox", label: "Inbox", icon: Inbox, capability: "conversation.view" },
       { href: "/agent", label: "AI Sales Agent", icon: Bot, capability: "campaign.view" },
     ],
@@ -69,16 +84,41 @@ const NAV: NavGroup[] = [
   {
     heading: "Sell",
     items: [
-      { href: "/pipeline", label: "Pipeline", icon: BarChart3, capability: "pipeline.view" },
-      { href: "/meetings", label: "Meetings", icon: CalendarCheck, capability: "pipeline.view" },
-      { href: "/opportunities", label: "Opportunities", icon: Trophy, capability: "pipeline.view" },
-      { href: "/customers", label: "Customers", icon: Users, capability: "pipeline.view" },
+      {
+        href: "/pipeline",
+        label: "Pipeline",
+        icon: BarChart3,
+        capability: "pipeline.view",
+      },
+      {
+        href: "/meetings",
+        label: "Meetings",
+        icon: CalendarCheck,
+        capability: "pipeline.view",
+      },
+      {
+        href: "/opportunities",
+        label: "Opportunities",
+        icon: Trophy,
+        capability: "pipeline.view",
+      },
+      {
+        href: "/customers",
+        label: "Customers",
+        icon: Users,
+        capability: "pipeline.view",
+      },
     ],
   },
   {
     heading: "Analyze",
     items: [
-      { href: "/analytics", label: "Analytics", icon: LineChart, capability: "analytics.view" },
+      {
+        href: "/analytics",
+        label: "Analytics",
+        icon: LineChart,
+        capability: "analytics.view",
+      },
       { href: "/revenue", label: "Revenue", icon: Wallet, capability: "analytics.view" },
       { href: "/advisor", label: "AI Advisor", icon: Bot, capability: "analytics.view" },
     ],
@@ -86,8 +126,18 @@ const NAV: NavGroup[] = [
   {
     heading: null,
     items: [
-      { href: "/integrations", label: "Integrations", icon: Plug, capability: "integration.manage" },
-      { href: "/billing", label: "Billing", icon: CreditCard, capability: "billing.view" },
+      {
+        href: "/integrations",
+        label: "Integrations",
+        icon: Plug,
+        capability: "integration.manage",
+      },
+      {
+        href: "/billing",
+        label: "Billing",
+        icon: CreditCard,
+        capability: "billing.view",
+      },
       { href: "/settings", label: "Settings", icon: Settings },
     ],
   },
@@ -124,7 +174,10 @@ export function AppSidebar() {
         if (items.length === 0) return null;
 
         return (
-          <div key={group.heading ?? `group-${groupIndex}`} className="flex flex-col gap-1">
+          <div
+            key={group.heading ?? `group-${groupIndex}`}
+            className="flex flex-col gap-1"
+          >
             {group.heading ? (
               <h2 className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-fg-subtle">
                 {group.heading}

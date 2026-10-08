@@ -31,7 +31,9 @@ export function useSession() {
     role: query.data?.active_role ?? null,
     /** True when the user belongs to several orgs and has not chosen one. */
     needsOrganizationChoice:
-      !!query.data && !query.data.active_organization && query.data.memberships.length > 1,
+      !!query.data &&
+      !query.data.active_organization &&
+      query.data.memberships.length > 1,
     /** True when the user has no organization at all and must create one. */
     needsOnboarding: !!query.data && query.data.memberships.length === 0,
     can,

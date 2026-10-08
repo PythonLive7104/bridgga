@@ -14,8 +14,9 @@
  * ------------------------------------------------------------------------- */
 
 @theme {
-  --font-sans: var(--font-sans-var), ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", Roboto, sans-serif;
+  --font-sans:
+    var(--font-sans-var), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
 
   --color-bg: var(--bg);
@@ -188,10 +189,38 @@
 
   .gradient-wash {
     background-image: radial-gradient(
-        ellipse 80% 50% at 50% -10%,
-        var(--accent-subtle),
-        transparent 70%
-      );
+      ellipse 80% 50% at 50% -10%,
+      var(--accent-subtle),
+      transparent 70%
+    );
+  }
+
+  /* Faint grid behind the hero. Masked to fade out at the edges so it reads as
+     depth rather than as a visible rectangle sitting on the page. */
+  .grid-texture {
+    background-image:
+      linear-gradient(to right, var(--border) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black, transparent 75%);
+    -webkit-mask-image: radial-gradient(
+      ellipse 70% 60% at 50% 0%,
+      black,
+      transparent 75%
+    );
+    opacity: 0.6;
+  }
+
+  /* Hairline that fades at both ends, for section dividers that should not
+     read as a hard rule across the full width. */
+  .rule-fade {
+    background-image: linear-gradient(
+      to right,
+      transparent,
+      var(--border) 20%,
+      var(--border) 80%,
+      transparent
+    );
   }
 }
 

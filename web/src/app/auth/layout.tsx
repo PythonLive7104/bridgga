@@ -6,7 +6,10 @@ export default function AuthLayout({
   return (
     <div className="gradient-wash flex min-h-dvh flex-col">
       <header className="mx-auto w-full max-w-6xl px-4 py-6">
-        <Link href="/" className="inline-flex items-center gap-2 font-semibold tracking-tight">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-2 font-semibold tracking-tight"
+        >
           <span
             aria-hidden
             className="grid size-7 place-items-center rounded-lg bg-accent text-xs font-bold text-accent-fg"

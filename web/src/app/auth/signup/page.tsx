@@ -84,7 +84,10 @@ export default function SignupPage() {
       <Card>
         <CardContent className="space-y-4 p-6">
           {error ? (
-            <p role="alert" className="rounded-lg bg-negative/10 px-3 py-2 text-sm text-negative">
+            <p
+              role="alert"
+              className="rounded-lg bg-negative/10 px-3 py-2 text-sm text-negative"
+            >
               {error}
             </p>
           ) : null}

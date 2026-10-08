@@ -82,8 +82,14 @@ cd backend
 
 # Frontend
 cd web
-npm run typecheck && npm run lint && npm run build
+npm run typecheck && npm run lint && npm run format:check
+npm run build   # stop `npm run dev` first -- see below
 ```
+
+> `next build` and `next dev` share the `web/.next` directory, so building
+> while the dev server is running overwrites the chunks it is serving and the
+> dev server starts returning 500s. Stop the dev server before building, or
+> `rm -rf web/.next` and restart it if you forget.
 
 ## API
 

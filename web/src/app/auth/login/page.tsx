@@ -82,7 +82,10 @@ export default function LoginPage() {
       <Card>
         <CardContent className="space-y-4 p-6">
           {error ? (
-            <p role="alert" className="rounded-lg bg-negative/10 px-3 py-2 text-sm text-negative">
+            <p
+              role="alert"
+              className="rounded-lg bg-negative/10 px-3 py-2 text-sm text-negative"
+            >
               {error}
             </p>
           ) : null}
@@ -187,7 +190,10 @@ export default function LoginPage() {
                 className="w-full"
                 disabled={busy || !email}
                 onClick={() =>
-                  void run(() => requestLoginCode(email), () => setStage("code-sent"))
+                  void run(
+                    () => requestLoginCode(email),
+                    () => setStage("code-sent"),
+                  )
                 }
               >
                 Email me a sign-in code instead

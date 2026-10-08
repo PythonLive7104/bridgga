@@ -1,9 +1,7 @@
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AppTopbar } from "@/components/layout/app-topbar";
 
-export default function AppLayout({
-  children,
-}: Readonly<{ children: React.ReactNode }>) {
+export default function AppLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <div className="flex h-dvh overflow-hidden">
       <div className="hidden lg:block">

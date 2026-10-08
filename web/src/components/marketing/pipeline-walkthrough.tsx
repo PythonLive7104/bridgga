@@ -129,11 +129,22 @@ const STEPS: Step[] = [
       <Panel title="Recommended markets" hint="Each score carries its reasoning.">
         <div className="space-y-2">
           {[
-            { market: "Nigeria", fit: "High fit", reason: "Dense haulage sector, email + WhatsApp reach" },
-            { market: "Kenya", fit: "High fit", reason: "Regional distribution hub, strong SaaS adoption" },
+            {
+              market: "Nigeria",
+              fit: "High fit",
+              reason: "Dense haulage sector, email + WhatsApp reach",
+            },
+            {
+              market: "Kenya",
+              fit: "High fit",
+              reason: "Regional distribution hub, strong SaaS adoption",
+            },
             { market: "Ghana", fit: "Medium fit", reason: "Smaller fleet operator base" },
           ].map((row) => (
-            <Row key={row.market} className="flex-col items-start sm:flex-row sm:items-center">
+            <Row
+              key={row.market}
+              className="flex-col items-start sm:flex-row sm:items-center"
+            >
               <div>
                 <div className="text-sm font-medium text-fg">{row.market}</div>
                 <div className="text-xs text-fg-muted">{row.reason}</div>
@@ -184,11 +195,26 @@ const STEPS: Step[] = [
       >
         <div className="space-y-2">
           {[
-            { signal: "Opened a second depot in Ibadan", source: "Company announcement", age: "6 days ago" },
-            { signal: "Hiring 12 drivers and a fleet supervisor", source: "Careers page", age: "2 days ago" },
-            { signal: "No telematics vendor detected", source: "Website technology scan", age: "Today" },
+            {
+              signal: "Opened a second depot in Ibadan",
+              source: "Company announcement",
+              age: "6 days ago",
+            },
+            {
+              signal: "Hiring 12 drivers and a fleet supervisor",
+              source: "Careers page",
+              age: "2 days ago",
+            },
+            {
+              signal: "No telematics vendor detected",
+              source: "Website technology scan",
+              age: "Today",
+            },
           ].map((row) => (
-            <Row key={row.signal} className="flex-col items-start gap-1 sm:flex-row sm:items-center">
+            <Row
+              key={row.signal}
+              className="flex-col items-start gap-1 sm:flex-row sm:items-center"
+            >
               <div className="min-w-0">
                 <div className="text-sm text-fg">{row.signal}</div>
                 <div className="text-xs text-fg-subtle">
@@ -260,95 +286,98 @@ export function PipelineWalkthrough() {
 
   return (
     <section
+      id="how-it-works"
       aria-labelledby="walkthrough-heading"
-      className="mx-auto max-w-6xl px-4 py-20 sm:py-28"
+      className="scroll-mt-16 border-t border-border bg-bg-subtle"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       onFocusCapture={() => setPaused(true)}
     >
-      <div className="mx-auto max-w-2xl text-center">
-        <Badge tone="accent">How it works</Badge>
-        <h2 id="walkthrough-heading" className="text-headline mt-4 text-fg">
-          From a URL to attributed revenue
-        </h2>
-        <p className="mt-4 text-fg-muted">
-          Nine steps run between a website and a closed deal. Here are the six that
-          decide whether the other three are worth anyone&apos;s time.
-        </p>
-      </div>
-
-      <div className="mt-12 grid gap-6 lg:grid-cols-[18rem_1fr]">
-        {/* Step list doubles as the tab list. */}
-        <div
-          role="tablist"
-          aria-label="Pipeline steps"
-          aria-orientation="vertical"
-          className="flex gap-2 overflow-x-auto pb-2 lg:flex-col lg:overflow-visible lg:pb-0"
-        >
-          {STEPS.map((step, index) => {
-            const selected = index === active;
-            return (
-              <button
-                key={step.id}
-                role="tab"
-                id={`tab-${step.id}`}
-                aria-selected={selected}
-                aria-controls={`panel-${step.id}`}
-                tabIndex={selected ? 0 : -1}
-                onClick={() => setActive(index)}
-                onKeyDown={(event) => {
-                  if (event.key === "ArrowDown" || event.key === "ArrowRight") {
-                    event.preventDefault();
-                    setActive((current) => (current + 1) % STEPS.length);
-                  }
-                  if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
-                    event.preventDefault();
-                    setActive((current) => (current - 1 + STEPS.length) % STEPS.length);
-                  }
-                }}
-                className={cn(
-                  "shrink-0 rounded-[var(--radius-control)] border px-3 py-3 text-left transition-colors lg:shrink",
-                  selected
-                    ? "border-accent/40 bg-accent-subtle"
-                    : "border-border bg-surface hover:border-border-strong",
-                )}
-              >
-                <span className="flex items-center gap-2">
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "tabular grid size-5 shrink-0 place-items-center rounded-full text-[11px] font-semibold",
-                      selected
-                        ? "bg-accent text-accent-fg"
-                        : "bg-bg-subtle text-fg-subtle",
-                    )}
-                  >
-                    {index + 1}
-                  </span>
-                  <span
-                    className={cn(
-                      "whitespace-nowrap text-sm font-medium lg:whitespace-normal",
-                      selected ? "text-fg" : "text-fg-muted",
-                    )}
-                  >
-                    {step.label}
-                  </span>
-                </span>
-                <span className="mt-1 hidden text-xs text-fg-subtle lg:block">
-                  {step.caption}
-                </span>
-              </button>
-            );
-          })}
+      <div className="mx-auto max-w-6xl px-4 py-20 sm:py-28">
+        <div className="mx-auto max-w-2xl text-center">
+          <Badge tone="accent">How it works</Badge>
+          <h2 id="walkthrough-heading" className="text-headline mt-4 text-fg">
+            From a URL to attributed revenue
+          </h2>
+          <p className="mt-4 text-fg-muted">
+            Nine steps run between a website and a closed deal. Here are the six that
+            decide whether the other three are worth anyone&apos;s time.
+          </p>
         </div>
 
-        <div
-          role="tabpanel"
-          id={`panel-${activeStep.id}`}
-          aria-labelledby={`tab-${activeStep.id}`}
-          className="min-h-[22rem] rounded-[var(--radius-card)] border border-border bg-surface p-5 shadow-[var(--shadow-card)] sm:p-6"
-        >
-          {activeStep.panel}
+        <div className="mt-12 grid gap-6 lg:grid-cols-[18rem_1fr]">
+          {/* Step list doubles as the tab list. */}
+          <div
+            role="tablist"
+            aria-label="Pipeline steps"
+            aria-orientation="vertical"
+            className="flex gap-2 overflow-x-auto pb-2 lg:flex-col lg:overflow-visible lg:pb-0"
+          >
+            {STEPS.map((step, index) => {
+              const selected = index === active;
+              return (
+                <button
+                  key={step.id}
+                  role="tab"
+                  id={`tab-${step.id}`}
+                  aria-selected={selected}
+                  aria-controls={`panel-${step.id}`}
+                  tabIndex={selected ? 0 : -1}
+                  onClick={() => setActive(index)}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+                      event.preventDefault();
+                      setActive((current) => (current + 1) % STEPS.length);
+                    }
+                    if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+                      event.preventDefault();
+                      setActive((current) => (current - 1 + STEPS.length) % STEPS.length);
+                    }
+                  }}
+                  className={cn(
+                    "shrink-0 rounded-[var(--radius-control)] border px-3 py-3 text-left transition-colors lg:shrink",
+                    selected
+                      ? "border-accent/40 bg-accent-subtle"
+                      : "border-border bg-surface hover:border-border-strong",
+                  )}
+                >
+                  <span className="flex items-center gap-2">
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "tabular grid size-5 shrink-0 place-items-center rounded-full text-[11px] font-semibold",
+                        selected
+                          ? "bg-accent text-accent-fg"
+                          : "bg-bg-subtle text-fg-subtle",
+                      )}
+                    >
+                      {index + 1}
+                    </span>
+                    <span
+                      className={cn(
+                        "whitespace-nowrap text-sm font-medium lg:whitespace-normal",
+                        selected ? "text-fg" : "text-fg-muted",
+                      )}
+                    >
+                      {step.label}
+                    </span>
+                  </span>
+                  <span className="mt-1 hidden text-xs text-fg-subtle lg:block">
+                    {step.caption}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div
+            role="tabpanel"
+            id={`panel-${activeStep.id}`}
+            aria-labelledby={`tab-${activeStep.id}`}
+            className="min-h-[22rem] rounded-[var(--radius-card)] border border-border bg-surface p-5 shadow-[var(--shadow-card)] sm:p-6"
+          >
+            {activeStep.panel}
+          </div>
         </div>
       </div>
     </section>

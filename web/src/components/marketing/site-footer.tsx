@@ -102,8 +102,8 @@ export function SiteFooter() {
 
         <div className="mt-12 flex flex-col gap-4 border-t border-border pt-6 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-fg-subtle">
-            &copy; {new Date().getFullYear()} Palatial. Built for African businesses. Ready
-            for the world.
+            &copy; {new Date().getFullYear()} Palatial. Built for African businesses.
+            Ready for the world.
           </p>
           <p className="text-sm text-fg-subtle">
             Compliant outreach only. We do not sell scraped personal data.
