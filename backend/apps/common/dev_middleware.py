@@ -44,10 +44,10 @@ def is_private_origin(origin: str) -> bool:
     return address.is_loopback or address.is_private or address.is_link_local
 
 
-class PrivateNetworkCsrf(CsrfViewMiddleware):
+def install_private_network_trust() -> None:
     """Trust CSRF origins on the local network, in development only.
 
-    Opening the dev server from a phone, or from a second machine, produces an
+    Opening the dev server from a phone, or a second machine, produces an
     origin like ``http://192.168.1.50:3000``. Django rejects it on every POST
     and answers with an HTML 403, so every form on the site appears broken for
     no stated reason.
@@ -55,17 +55,31 @@ class PrivateNetworkCsrf(CsrfViewMiddleware):
     The usual fix is to list the address in ``CSRF_TRUSTED_ORIGINS``, which
     does not survive the next DHCP lease, and cannot be derived inside a
     container: the backend sees its own ``172.x`` address, never the host's.
-
     So the rule is the property itself -- a literal private or loopback
-    address -- rather than a list of them. This is safe here and nowhere else:
-    on a public deployment the attacker's origin is a public name, which this
-    still refuses, but the setting that gates it is ``DEBUG`` and this
-    middleware is simply not installed in production.
-    """
+    address -- rather than a list of them.
 
-    def _origin_verified(self, request: Any) -> bool:
-        if super()._origin_verified(request):
+    This patches the method rather than installing a middleware subclass
+    because the middleware is not the only caller. DRF's ``SessionAuthentication``
+    builds its own ``CSRFCheck``, which subclasses ``CsrfViewMiddleware``
+    directly, so a replacement in ``MIDDLEWARE`` fixes the allauth endpoints
+    and leaves every API write still rejected -- which is exactly what
+    happened. Patching the base class is the one place both paths share.
+
+    Safe here and nowhere else: on a public deployment an attacker's origin is
+    a public name, which this still refuses, and the caller only installs it
+    when ``DEBUG`` is on.
+    """
+    if getattr(CsrfViewMiddleware, "_private_network_trust_installed", False):
+        return
+
+    original = CsrfViewMiddleware._origin_verified
+
+    def _origin_verified(self: Any, request: Any) -> bool:
+        if original(self, request):
             return True
         if not settings.DEBUG:
             return False
         return is_private_origin(request.META.get("HTTP_ORIGIN", ""))
+
+    CsrfViewMiddleware._origin_verified = _origin_verified
+    CsrfViewMiddleware._private_network_trust_installed = True

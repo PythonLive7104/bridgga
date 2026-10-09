@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 
 from .base import *
-from .base import INSTALLED_APPS, MIDDLEWARE, REST_FRAMEWORK, env_list
+from .base import INSTALLED_APPS, REST_FRAMEWORK, env_list
 
 DEBUG = True
 
@@ -36,12 +36,7 @@ REST_FRAMEWORK = {
 # literal private or loopback address -- applied by a middleware that only
 # exists in this settings module.
 
-MIDDLEWARE = [
-    "apps.common.dev_middleware.PrivateNetworkCsrf"
-    if item == "django.middleware.csrf.CsrfViewMiddleware"
-    else item
-    for item in MIDDLEWARE
-]
+TRUST_PRIVATE_NETWORK_CSRF = True
 
 # Any host, because the address this is reached on is not knowable here and
 # DEBUG is True. Set DJANGO_ALLOWED_HOSTS to pin it.

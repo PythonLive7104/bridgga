@@ -51,21 +51,69 @@ def test_everything_else_is_refused(origin: str) -> None:
     assert not is_private_origin(origin)
 
 
+def test_the_patch_covers_the_api_as_well_as_the_middleware() -> None:
+    """DRF builds its own CSRF checker, so a middleware swap misses every write.
+
+    This is the bug the first attempt had: allauth endpoints accepted the LAN
+    origin and `POST /api/v1/organizations` still answered 403, because
+    SessionAuthentication constructs CSRFCheck directly.
+    """
+    from django.middleware.csrf import CsrfViewMiddleware
+    from rest_framework.authentication import CSRFCheck
+
+    from apps.common.dev_middleware import install_private_network_trust
+
+    install_private_network_trust()
+
+    # One method, inherited by both, so neither path can be left behind.
+    assert CSRFCheck._origin_verified is CsrfViewMiddleware._origin_verified
+
+
+def test_installing_twice_does_not_stack_wrappers() -> None:
+    """Django re-imports app configs in some flows; this must stay idempotent."""
+    from django.middleware.csrf import CsrfViewMiddleware
+
+    from apps.common.dev_middleware import install_private_network_trust
+
+    install_private_network_trust()
+    first = CsrfViewMiddleware._origin_verified
+    install_private_network_trust()
+
+    assert CsrfViewMiddleware._origin_verified is first
+
+
 def test_the_relaxation_is_inert_when_debug_is_off(settings: object) -> None:
     """Belt and braces: prod never installs this, and it would do nothing anyway."""
-    from unittest.mock import Mock
-
+    from django.middleware.csrf import CsrfViewMiddleware
     from django.test import override_settings
 
-    from apps.common.dev_middleware import PrivateNetworkCsrf
+    from apps.common.dev_middleware import install_private_network_trust
 
-    middleware = PrivateNetworkCsrf(lambda request: None)
-    request = Mock()
-    request.META = {"HTTP_ORIGIN": "http://192.168.1.50:3000"}
+    install_private_network_trust()
+    middleware = CsrfViewMiddleware(lambda request: None)
 
     with override_settings(DEBUG=False):
-        # The parent refuses it, and the override declines to help.
-        assert not PrivateNetworkCsrf._origin_verified(middleware, _StubRequest(request.META))
+        assert not middleware._origin_verified(
+            _StubRequest({"HTTP_ORIGIN": "http://192.168.1.50:3000"})
+        )
+
+
+def test_a_private_origin_is_accepted_when_debug_is_on() -> None:
+    from django.middleware.csrf import CsrfViewMiddleware
+    from django.test import override_settings
+
+    from apps.common.dev_middleware import install_private_network_trust
+
+    install_private_network_trust()
+    middleware = CsrfViewMiddleware(lambda request: None)
+
+    with override_settings(DEBUG=True):
+        assert middleware._origin_verified(
+            _StubRequest({"HTTP_ORIGIN": "http://192.168.1.50:3000"})
+        )
+        assert not middleware._origin_verified(
+            _StubRequest({"HTTP_ORIGIN": "http://evil.example.com"})
+        )
 
 
 class _StubRequest:
