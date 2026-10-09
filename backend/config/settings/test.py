@@ -8,7 +8,7 @@ tenancy and validation all behave exactly as in production.
 from __future__ import annotations
 
 from .base import *
-from .base import BASE_DIR, env
+from .base import BASE_DIR, PROCESS_ENVIRON
 
 DEBUG = False
 SECRET_KEY = "test-only-secret-key"
@@ -16,9 +16,16 @@ ALLOWED_HOSTS = ["testserver", "localhost"]
 
 # CI sets DATABASE_URL to Postgres. Locally this falls back to SQLite so the
 # suite runs without Docker -- see docs/adr/0006-sqlite-dev-fallback.md.
+#
+# Read from PROCESS_ENVIRON, not os.environ: backend/.env is loaded into the
+# process by then, and a developer's file points at the compose hostname `db`,
+# which does not resolve outside that network. Tests would fail to connect on
+# a machine where the application itself runs perfectly. What runs the suite
+# is a deliberate choice by whoever invoked it, never a side effect of local
+# configuration.
 DATABASES = {
     "default": __import__("dj_database_url").parse(
-        env("DATABASE_URL", f"sqlite:///{BASE_DIR / 'test.sqlite3'}"),
+        PROCESS_ENVIRON.get("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'test.sqlite3'}",
     )
 }
 

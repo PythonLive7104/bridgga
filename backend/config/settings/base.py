@@ -25,6 +25,13 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 # `override=False` is the default and is the behaviour we want: a variable
 # already set in the real environment wins. On a server the process manager
 # supplies them; the file is the fallback.
+# Captured before the file is read, so a settings module can tell a value that
+# came from the real environment -- CI, a process manager, `docker compose` --
+# from one that came out of backend/.env. The test settings depend on the
+# difference: a developer's file points DATABASE_URL at a compose hostname,
+# and that must not decide where the suite runs.
+PROCESS_ENVIRON = dict(os.environ)
+
 load_dotenv(BASE_DIR / ".env", override=False)
 
 
