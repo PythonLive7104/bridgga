@@ -14,8 +14,9 @@ skeleton, Celery queues, the design system and the marketing site. Phase 2 has
 the SSRF-hardened website fetcher, the AI layer (providers, versioned prompt
 registry, cost ledger), the eval harness, the company-understanding agent
 behind an editable company profile, the ICP builder and the market
-recommendation engine. Next: the company and lead data model. No prospects or
-campaigns yet.
+recommendation engine, and the Company/Person/Lead data model with provenance
+and contact-quality statuses. Next: the import pipeline and prospect discovery.
+No campaigns yet.
 
 ---
 

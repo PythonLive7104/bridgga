@@ -113,6 +113,9 @@ LOCAL_APPS = [
     "apps.accounts",
     "apps.organizations",
     "apps.intelligence",
+    "apps.companies",
+    "apps.contacts",
+    "apps.leads",
     "apps.ai",
     "apps.audit",
     "apps.billing",
@@ -333,6 +336,11 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # delivery (PRD sections 81 and 104).
 CELERY_TASK_DEFAULT_QUEUE = "default"
 CELERY_TASK_QUEUES_NAMES = ["default", "crawl", "enrich", "ai", "send", "analytics"]
+# How long a sourced fact is trusted before it is shown as stale (PRD section
+# 61 keeps `last_verified_at` for exactly this). A prospect researched six
+# months ago may have moved, been acquired, or stopped existing.
+DATA_FRESHNESS_DAYS = int(env("DATA_FRESHNESS_DAYS", "90"))
+
 CELERY_TASK_ROUTES = {
     # Declared before the wildcard below, which would otherwise claim it:
     # Celery returns the first matching pattern, and dicts keep insertion
