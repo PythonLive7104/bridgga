@@ -18,6 +18,7 @@ from apps.ai.pricing import MODELS, Tier, resolve_model
 from apps.ai.providers.base import (
     AIOutputInvalid,
     AIProviderError,
+    AIQuotaExhausted,
     AIRateLimited,
     AIRefused,
     CompletionRequest,
@@ -266,6 +267,82 @@ def test_rate_limit_is_retryable() -> None:
     with pytest.raises(AIRateLimited) as caught:
         provider_with(error=error).complete(make_request(), spec=OPENAI_SPEC)
     assert caught.value.retryable is True
+
+
+def test_an_empty_balance_is_not_treated_as_a_rate_limit() -> None:
+    """Found by running the live suite against a real key with no credit.
+
+    OpenAI reports both as HTTP 429, and the adapter called both retryable.
+    Waiting fixes a rate limit; nothing fixes an empty balance except a
+    payment, so every queued job retried, every retry failed identically, and
+    the logs said "rate limited" while the real problem was a billing page.
+    """
+    import openai
+
+    error = openai.RateLimitError(
+        "You have no credits remaining.",
+        response=_http_response(429),
+        body={
+            "error": {
+                "message": "You have no credits remaining.",
+                "type": "insufficient_quota",
+                "code": "credit_balance_exhausted",
+            }
+        },
+    )
+
+    with pytest.raises(AIQuotaExhausted) as caught:
+        provider_with(error=error).complete(make_request(), spec=OPENAI_SPEC)
+
+    assert caught.value.retryable is False
+    # Written for a person: this is one of the few provider failures the
+    # customer can act on themselves.
+    assert "credit" in str(caught.value).lower()
+
+
+def test_a_genuine_rate_limit_is_still_retryable() -> None:
+    """The quota check must not swallow the case it sits in front of."""
+    import openai
+
+    error = openai.RateLimitError(
+        "Rate limit reached for gpt-5-nano",
+        response=_http_response(429),
+        body={"error": {"message": "Rate limit reached", "type": "rate_limit_error"}},
+    )
+
+    with pytest.raises(AIRateLimited) as caught:
+        provider_with(error=error).complete(make_request(), spec=OPENAI_SPEC)
+
+    assert caught.value.retryable is True
+
+
+@pytest.mark.django_db
+def test_a_quota_failure_is_recorded_once_and_not_retried(organization: Any) -> None:
+    """The runner must not pay for a second attempt it knows will fail."""
+    import openai
+
+    from apps.ai.models import AIJob, AIJobStatus
+    from apps.ai.runner import run_prompt
+
+    error = openai.RateLimitError(
+        "You have no credits remaining.",
+        response=_http_response(429),
+        body={"error": {"type": "insufficient_quota"}},
+    )
+    provider = provider_with(error=error)
+
+    with pytest.raises(AIQuotaExhausted):
+        run_prompt(
+            organization=organization,
+            prompt="reply_classification",
+            user_content="Take me off your list.",
+            provider=provider,
+        )
+
+    job = AIJob.all_objects.get()
+    assert job.status == AIJobStatus.FAILED
+    assert job.attempts == 1
+    assert len(provider.client.responses.calls) == 1
 
 
 def test_client_error_is_not_retryable() -> None:

@@ -31,6 +31,7 @@ router.register(
 )
 router.register("leads/imports", views.ImportJobViewSet, basename="importjob")
 router.register("prospects", views.ProspectViewSet, basename="prospect")
+router.register("signals", views.SignalViewSet, basename="leadsignal")
 router.register("saved-searches", views.SavedSearchViewSet, basename="savedsearch")
 
 urlpatterns = [

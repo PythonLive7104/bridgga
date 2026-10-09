@@ -32,6 +32,22 @@ class AIRateLimited(AIProviderError):
     retryable = True
 
 
+class AIQuotaExhausted(AIProviderError):
+    """The account is out of credit, as distinct from being rate limited.
+
+    Both arrive as HTTP 429 from OpenAI, which is why this exists: waiting and
+    trying again fixes a rate limit and cannot fix an empty balance. Treating
+    the second as the first means every queued job retries, every retry fails
+    the same way, and the operator reads "rate limited" in the logs while the
+    actual problem is a billing page.
+
+    Not retryable, and the message is written to be shown to a human: this is
+    one of the few provider failures a customer can do something about.
+    """
+
+    retryable = False
+
+
 class AIProviderUnavailable(AIProviderError):
     retryable = True
 

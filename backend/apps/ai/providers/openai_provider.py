@@ -31,6 +31,7 @@ from apps.ai.providers.base import (
     AIProvider,
     AIProviderError,
     AIProviderUnavailable,
+    AIQuotaExhausted,
     AIRateLimited,
     AIRefused,
     CompletionRequest,
@@ -39,6 +40,22 @@ from apps.ai.providers.base import (
 )
 
 logger = structlog.get_logger(__name__)
+
+#: Markers OpenAI uses for "out of credit" rather than "too many requests".
+#: Matched on the error body's type and code, with the message as a fallback
+#: because the first two have been renamed before.
+_QUOTA_MARKERS = ("insufficient_quota", "credit_balance_exhausted", "billing_hard_limit_reached")
+
+
+def _is_quota_error(exc: Any) -> bool:
+    body = getattr(exc, "body", None) or {}
+    if isinstance(body, dict):
+        error = body.get("error") if isinstance(body.get("error"), dict) else body
+        fields = (error or {}).get("type", ""), (error or {}).get("code", "")
+        if any(str(field) in _QUOTA_MARKERS for field in fields):
+            return True
+    text = str(exc).lower()
+    return any(marker in text for marker in _QUOTA_MARKERS) or "no credits remaining" in text
 
 
 class OpenAIProvider(AIProvider):
@@ -79,6 +96,13 @@ class OpenAIProvider(AIProvider):
                 prompt_cache_key=self._cache_key(instructions),
             )
         except openai.RateLimitError as exc:
+            # 429 covers two different problems. `insufficient_quota` means
+            # the account has no credit left, and no amount of backoff will
+            # change that -- see AIQuotaExhausted.
+            if _is_quota_error(exc):
+                raise AIQuotaExhausted(
+                    "The OpenAI account has no credit remaining. Add credits to continue."
+                ) from exc
             raise AIRateLimited(str(exc)) from exc
         except openai.APITimeoutError as exc:
             raise AIProviderUnavailable("The model took too long to respond") from exc

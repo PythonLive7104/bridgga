@@ -354,6 +354,13 @@ CELERY_TASK_ROUTES = {
     # look broken.
     "apps.intelligence.tasks.analyze_company_website": {"queue": "ai"},
     "apps.intelligence.tasks.*": {"queue": "crawl"},
+    # Same ordering rule as above: the specific signal tasks are declared
+    # before the companies wildcard that would otherwise claim them. One
+    # fetches prospect websites and belongs on the crawl worker with its
+    # egress allowlist; the other calls a paid model and must not be able to
+    # stall behind a diffing backlog.
+    "apps.companies.tasks.refresh_company_signals": {"queue": "crawl"},
+    "apps.companies.tasks.interpret_company_website_change": {"queue": "ai"},
     "apps.companies.tasks.*": {"queue": "enrich"},
     "apps.leads.tasks.*": {"queue": "enrich"},
     "apps.ai.tasks.*": {"queue": "ai"},

@@ -20,11 +20,13 @@ from apps.api.v1 import serializers as s
 from apps.audit.models import AuditAction, AuditLog
 from apps.audit.services import record_audit
 from apps.billing.models import CreditEntry, Subscription
+from apps.common.pagination import PageNumberPagination
 from apps.common.permissions import HasCapability, RequireOrganization
 from apps.common.tenancy import unscoped
 from apps.common.viewsets import TenantReadOnlyViewSet, TenantScopedViewSet
-from apps.companies import search
-from apps.companies.models import Company, CompanyEvent, SavedSearch
+from apps.companies import search, signal_engine
+from apps.companies import tasks as company_tasks
+from apps.companies.models import Company, LeadSignal, SavedSearch
 from apps.intelligence import agents, icp_agents, market_agents, tasks
 from apps.intelligence.models import (
     ICP,
@@ -844,6 +846,19 @@ class ProspectViewSet(TenantReadOnlyViewSet):
     serializer_class = s.ProspectSerializer
     queryset = Company.objects.all()
     required_capability = Capability.PROSPECT_VIEW
+    # Page numbers, not cursors, and this is a correctness matter rather than
+    # a preference. DRF's CursorPagination imposes its own ordering --
+    # (-created_at, -id) -- on whatever queryset it is handed, because a
+    # cursor is only meaningful against an ordering it controls. Applied
+    # here it silently discards the relevance ranking that search.py just
+    # computed, so a text search would return the newest matches rather than
+    # the best ones. A ranked result set also wants a total ("31 prospects"),
+    # which cursor pagination cannot give.
+    pagination_class = PageNumberPagination
+    # The POST actions below mutate (they queue crawls). HasCapability applies
+    # this to any unsafe method, so a viewer can read prospects without being
+    # able to spend the workspace's crawl budget.
+    write_capability = Capability.PROSPECT_MANAGE
 
     @staticmethod
     def prefetched_queryset() -> Any:
@@ -857,14 +872,16 @@ class ProspectViewSet(TenantReadOnlyViewSet):
         from apps.contacts.models import Person
         from apps.leads.models import Lead
 
-        recent_events = CompanyEvent.all_objects.order_by("-occurred_at", "-id")
+        # Live signals, strongest first: the row shows the single best reason
+        # to open it, and an expired or dismissed signal is not one.
+        live_signals = LeadSignal.all_objects.active().strongest_first()
         return Company.all_objects.prefetch_related(
             Prefetch(
                 "people",
                 queryset=Person.all_objects.order_by("-is_decision_maker", "id"),
                 to_attr="prefetched_people",
             ),
-            Prefetch("events", queryset=recent_events, to_attr="recent_events"),
+            Prefetch("signals", queryset=live_signals, to_attr="active_signals"),
             Prefetch(
                 "leads",
                 queryset=Lead.all_objects.select_related("owner").order_by("-score"),
@@ -888,6 +905,39 @@ class ProspectViewSet(TenantReadOnlyViewSet):
         # environments should be able to see which answered.
         response.data["search_backend"] = search.search_backend()
         return response
+
+    @extend_schema(responses={200: s.LeadSignalSerializer(many=True)})
+    @action(detail=True, methods=["get"], url_path="signals")
+    def signals(self, request: Request, **kwargs: Any) -> Response:
+        """Every signal for one prospect, including the stale ones.
+
+        The list view shows live signals only. Here, history is the point: a
+        rep deciding whether to call wants to know that this company was
+        hiring for the same role six months ago too.
+        """
+        company = self.get_object()
+        include_stale = str(request.query_params.get("include_stale", "")).lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        queryset = LeadSignal.all_objects.filter(company=company)
+        if not include_stale:
+            queryset = queryset.active()
+        return Response(s.LeadSignalSerializer(queryset.strongest_first(), many=True).data)
+
+    @extend_schema(request=None, responses={202: {"type": "object"}})
+    @action(detail=True, methods=["post"], url_path="detect-signals")
+    def detect_signals(self, request: Request, **kwargs: Any) -> Response:
+        """Re-crawl this prospect's watched pages and detect against them.
+
+        Queued, not inline: it makes several outbound fetches, which is far
+        longer than a request should hold open.
+        """
+        company = self.get_object()
+        company_tasks.refresh_company_signals.delay(company.pk)
+        return Response({"status": "queued"}, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(responses={200: {"type": "object"}})
     @action(detail=False, methods=["get"], url_path="facets")
@@ -920,6 +970,109 @@ class ProspectViewSet(TenantReadOnlyViewSet):
                 "search_backend": search.search_backend(),
             }
         )
+
+
+class SignalViewSet(TenantReadOnlyViewSet):
+    """The buying-signal feed (PRD section 33).
+
+    Read-only with one exception, ``dismiss``, because a signal is an
+    observation and the only thing a person should be able to do to an
+    observation is disagree with it. Editing one would destroy the evidence
+    trail that makes it worth anything.
+    """
+
+    serializer_class = s.LeadSignalSerializer
+    queryset = LeadSignal.objects.all()
+    required_capability = Capability.PROSPECT_VIEW
+    write_capability = Capability.PROSPECT_MANAGE
+    # Same reason as the prospect list: the feed is ordered by strength, and
+    # cursor pagination would reorder it by creation date.
+    pagination_class = PageNumberPagination
+
+    def get_base_queryset(self) -> Any:
+        return LeadSignal.all_objects.select_related("company")
+
+    def filter_queryset(self, queryset: Any) -> Any:
+        params = self.request.query_params
+
+        def flag(name: str) -> bool:
+            return str(params.get(name, "")).lower() in {"1", "true", "yes", "on"}
+
+        # Live signals by default: someone opening the feed wants the reasons
+        # to call today, not an archive. The two flags are independent rather
+        # than nested, so asking for dismissed signals does not also require
+        # asking for expired ones -- "show me what my team rejected" is a
+        # question about the detectors, and it has nothing to do with age.
+        from django.utils import timezone
+
+        if not flag("include_expired"):
+            queryset = queryset.filter(expires_at__gt=timezone.now())
+        if not flag("include_dismissed"):
+            queryset = queryset.filter(dismissed_at__isnull=True)
+
+        types = [
+            part.strip()
+            for raw in params.getlist("type")
+            for part in str(raw).split(",")
+            if part.strip()
+        ]
+        if types:
+            queryset = queryset.of_type(types)
+
+        if company := params.get("company"):
+            queryset = queryset.filter(company__public_id=company)
+
+        try:
+            if days := int(params.get("days") or 0):
+                queryset = queryset.detected_within(days)
+        except (TypeError, ValueError):
+            pass
+
+        return queryset.strongest_first()
+
+    @extend_schema(request=s.SignalDismissSerializer, responses={200: s.LeadSignalSerializer})
+    @action(detail=True, methods=["post"], url_path="dismiss")
+    def dismiss(self, request: Request, **kwargs: Any) -> Response:
+        """Mark a signal as not relevant. Kept, not deleted."""
+        signal = self.get_object()
+        serializer = s.SignalDismissSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reason = serializer.validated_data.get("reason", "")
+
+        signal_engine.dismiss_signal(signal=signal, user=request.user, reason=reason)
+        record_audit(
+            organization=request.organization,
+            action=AuditAction.SIGNAL_DISMISSED,
+            actor=request.user,
+            target=signal,
+            metadata={
+                "signal_type": signal.signal_type,
+                "detector": signal.detector,
+                "reason": reason,
+            },
+            request=request,
+        )
+        return Response(s.LeadSignalSerializer(signal).data)
+
+    @extend_schema(responses={200: {"type": "object"}})
+    @action(detail=False, methods=["get"], url_path="summary")
+    def summary(self, request: Request) -> Response:
+        """Live signal counts by type, for the feed's filters.
+
+        Built from what is present, like the prospect facets: offering a
+        filter for a signal type nobody has is a filter that returns nothing.
+        """
+        from django.db.models import Count
+
+        rows = (
+            LeadSignal.all_objects.filter(organization=request.organization)
+            .active()
+            .values("signal_type")
+            .annotate(count=Count("id"))
+            .order_by("-count")
+        )
+        counts = [{"value": row["signal_type"], "count": row["count"]} for row in rows]
+        return Response({"types": counts, "total": sum(row["count"] for row in counts)})
 
 
 class SavedSearchViewSet(TenantScopedViewSet):

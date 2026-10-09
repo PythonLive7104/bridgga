@@ -32,19 +32,24 @@ def normalise_website_url(raw: str) -> str:
 
 
 @transaction.atomic
-def capture_snapshot(*, organization: Any, url: str) -> WebsiteSnapshot:
+def capture_snapshot(*, organization: Any, url: str, company: Any = None) -> WebsiteSnapshot:
     """Fetch a URL and store the result, successes and failures alike.
 
     A refusal or a failure is recorded rather than raised, because the
     onboarding UI needs to show the user *why* their site could not be read,
     and because a repeated failure against the same domain is a signal worth
     keeping.
+
+    ``company`` attributes the fetch to a prospect, which is what lets the
+    signal detectors pair consecutive crawls of the same page. Left unset for
+    the customer's own website.
     """
     normalised = normalise_website_url(url)
 
     with tenant_context(organization=organization):
         snapshot = WebsiteSnapshot.objects.create(
             organization=organization,
+            company=company,
             requested_url=normalised[:2048],
             status=SnapshotStatus.PENDING,
         )

@@ -146,6 +146,44 @@ class PainSignal(StrictModel):
     )
 
 
+class InterpretedSignal(StrictModel):
+    """One buying signal a model found in a change it was shown."""
+
+    type: SignalType
+    title: str = Field(
+        max_length=200,
+        description="What happened, in the words a salesperson would use. No preamble.",
+    )
+    why_it_matters: str = Field(
+        default="",
+        max_length=400,
+        description="Why this is a reason to contact the company now.",
+    )
+    confidence: Confidence = Confidence.MEDIUM
+    evidence: list[Evidence] = Field(
+        default_factory=list,
+        max_length=5,
+        description="Quotes from the supplied change that support this signal.",
+    )
+
+
+class SignalInterpretation(StrictModel):
+    """What changed on a website, characterised (PRD section 33).
+
+    An empty ``signals`` list is the expected answer most of the time: sites
+    change constantly and almost none of it is a reason to call. ``reasoning``
+    is where the model says why it found nothing, which is what makes a quiet
+    answer reviewable rather than indistinguishable from a failure.
+    """
+
+    signals: list[InterpretedSignal] = Field(default_factory=list, max_length=5)
+    reasoning: str = Field(
+        default="",
+        max_length=600,
+        description="Why these signals, or why none. One or two sentences.",
+    )
+
+
 class ICPDraft(StrictModel):
     """Generated ideal customer profile (PRD section 27)."""
 

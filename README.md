@@ -15,9 +15,10 @@ the SSRF-hardened website fetcher, the AI layer (providers, versioned prompt
 registry, cost ledger), the eval harness, the company-understanding agent
 behind an editable company profile, the ICP builder and the market
 recommendation engine, and the Company/Person/Lead data model with provenance
-and contact-quality statuses, CSV/XLSX lead import, and prospect discovery
-with Postgres full-text and trigram search. Next: the buying-signal engine.
-No campaigns yet.
+and contact-quality statuses, CSV/XLSX lead import, prospect discovery with
+Postgres full-text and trigram search, and the buying-signal engine with its
+six deterministic detectors and one grounded AI interpreter. Next: the
+opportunity score. No campaigns yet.
 
 ---
 
@@ -178,8 +179,9 @@ Two things to know:
 ```bash
 # Backend
 cd backend
-.venv/Scripts/python -m pytest              # full suite
+.venv/Scripts/python -m pytest              # full suite, no API calls, free
 .venv/Scripts/python -m pytest -m tenancy   # cross-tenant isolation only
+.venv/Scripts/python -m pytest -m security  # authorisation and injection controls
 .venv/Scripts/python -m ruff check .
 .venv/Scripts/python -m ruff format --check .
 .venv/Scripts/python manage.py makemigrations --check --dry-run
@@ -189,6 +191,33 @@ cd web
 npm run typecheck && npm run lint && npm run format:check
 npm run build   # stop `npm run dev` first -- see below
 ```
+
+### Testing against a real model
+
+The default suite never calls a paid API: `config.settings.test` pins
+`AI_PROVIDER` to the stub and a `conftest.py` fixture fails any test that
+reaches for a real provider without asking. That matters because Celery runs
+eagerly in tests, so an endpoint that queues an agent runs it inline — with a
+key in `backend/.env`, every run of the suite would otherwise have spent
+money with nothing in the output to say so.
+
+Two ways to spend it deliberately:
+
+```bash
+cd backend
+# The AI eval set (PRD section 106) against the configured provider.
+.venv/Scripts/python manage.py run_evals --yes
+.venv/Scripts/python manage.py run_evals --tag injection --fail-under 100 --yes
+
+# The live-model tests: eval floors, injection, restraint, real token accounting.
+.venv/Scripts/python -m pytest tests/test_live_ai.py --live-ai -v
+```
+
+Both need `AI_PROVIDER` and the matching key (`OPENAI_API_KEY` or
+`ANTHROPIC_API_KEY`) in `backend/.env`, and both skip rather than fail when
+there is no key. Expect a few cents per full run. A quota failure is reported
+as such and is never retried — an empty balance and a rate limit both arrive
+as HTTP 429 from OpenAI, and only one of them is fixed by waiting.
 
 > `next build` and `next dev` share the `web/.next` directory, so building
 > while the dev server is running overwrites the chunks it is serving and the

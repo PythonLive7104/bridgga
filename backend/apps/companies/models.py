@@ -237,15 +237,25 @@ class CompanyEvent(TenantOwnedModel, ProvenancedModel):
         return self.title
 
 
-# Re-exported for the app registry and a single import path.
+# Re-exported for the app registry and a single import path. The signal model
+# lives in its own module because "a fact about a company" and "a reason to
+# call it today" are different subjects -- see LeadSignal's docstring.
 from apps.companies.saved_searches import SavedSearch  # noqa: E402
+from apps.companies.signal_models import (  # noqa: E402
+    SIGNAL_TTL_DAYS,
+    SIGNAL_TYPE_CHOICES,
+    LeadSignal,
+)
 
 __all__ = [
+    "SIGNAL_TTL_DAYS",
+    "SIGNAL_TYPE_CHOICES",
     "Company",
     "CompanyEvent",
     "CompanyStatus",
     "CompanyTechnology",
     "EmployeeRange",
+    "LeadSignal",
     "SavedSearch",
     "normalise_domain",
 ]

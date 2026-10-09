@@ -19,7 +19,7 @@ from apps.accounts.models import User
 from apps.ai.schemas import SignalType
 from apps.audit.models import AuditLog
 from apps.billing.models import CreditEntry, Plan, Subscription
-from apps.companies.models import Company, CompanyEvent, SavedSearch
+from apps.companies.models import Company, CompanyEvent, LeadSignal, SavedSearch
 from apps.contacts.models import Person
 from apps.intelligence.models import (
     ICP,
@@ -572,7 +572,115 @@ class ProspectContactSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class LeadSignalSerializer(serializers.ModelSerializer):
+    """One buying signal (PRD section 33), with everything needed to judge it.
+
+    ``evidence`` is included in full rather than counted. Section 58 makes the
+    evidence the product: a rep about to mention a signal in a message needs
+    to read the quote and follow the link first, and a UI that had to fetch
+    each signal individually to show that would fetch none of them.
+
+    ``strength`` and ``decayed_strength`` are both returned because they
+    answer different questions -- how good this signal is, and how good it is
+    *today*. Showing only the decayed figure makes a strong month-old signal
+    indistinguishable from a weak new one.
+    """
+
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    company = serializers.UUIDField(source="company.public_id", read_only=True)
+    company_name = serializers.CharField(source="company.name", read_only=True)
+    company_domain = serializers.CharField(source="company.domain", read_only=True)
+    decayed_strength = serializers.SerializerMethodField()
+    freshness = serializers.SerializerMethodField()
+    age_days = serializers.SerializerMethodField()
+    is_active = serializers.SerializerMethodField()
+    is_dismissed = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = LeadSignal
+        fields = [
+            "id",
+            "company",
+            "company_name",
+            "company_domain",
+            "signal_type",
+            "title",
+            "description",
+            "detector",
+            "strength",
+            "decayed_strength",
+            "freshness",
+            "confidence",
+            "occurred_at",
+            "detected_at",
+            "last_seen_at",
+            "expires_at",
+            "age_days",
+            "is_active",
+            "is_dismissed",
+            "dismiss_reason",
+            "source",
+            "source_url",
+            "evidence",
+        ]
+        read_only_fields = fields
+
+    def get_decayed_strength(self, obj: LeadSignal) -> int:
+        return obj.decayed_strength()
+
+    def get_freshness(self, obj: LeadSignal) -> float:
+        return obj.freshness()
+
+    def get_age_days(self, obj: LeadSignal) -> int:
+        return obj.age_days()
+
+    def get_is_active(self, obj: LeadSignal) -> bool:
+        return obj.is_active()
+
+
+class SignalDismissSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+
 class ProspectSignalSerializer(serializers.ModelSerializer):
+    """The compact form shown on a prospect row (PRD section 117)."""
+
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    decayed_strength = serializers.SerializerMethodField()
+    evidence_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LeadSignal
+        fields = [
+            "id",
+            "signal_type",
+            "title",
+            "occurred_at",
+            "detected_at",
+            "expires_at",
+            "strength",
+            "decayed_strength",
+            "confidence",
+            "source",
+            "source_url",
+            "evidence_count",
+        ]
+        read_only_fields = fields
+
+    def get_decayed_strength(self, obj: LeadSignal) -> int:
+        return obj.decayed_strength()
+
+    def get_evidence_count(self, obj: LeadSignal) -> int:
+        return len(obj.evidence or [])
+
+
+class CompanyEventSerializer(serializers.ModelSerializer):
+    """A recorded fact about a company, as distinct from a signal.
+
+    Kept available because the two are not interchangeable: an event is dated
+    history that never expires, a signal is a reason to call that does.
+    """
+
     id = serializers.UUIDField(source="public_id", read_only=True)
 
     class Meta:
@@ -631,7 +739,10 @@ class ProspectSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(ProspectSignalSerializer(many=True))
     def get_signals(self, obj: Company) -> list:
-        return ProspectSignalSerializer(getattr(obj, "recent_events", []), many=True).data
+        # `active_signals` is set by the view's prefetch and holds live
+        # signals only. An expired one is not a reason to call, and putting it
+        # on the row would undo the expiry that makes signals trustworthy.
+        return ProspectSignalSerializer(getattr(obj, "active_signals", []), many=True).data
 
     @extend_schema_field(
         {

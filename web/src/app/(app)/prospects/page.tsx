@@ -48,6 +48,11 @@ function SignalCell({ prospect }: { prospect: Prospect }) {
   const [first, ...rest] = prospect.signals;
   if (!first) return <span className="text-sm text-fg-subtle">&mdash;</span>;
 
+  // `occurred_at` is null for most signals -- a careers page says a role is
+  // open, not when it was posted -- so the detection date is the fallback
+  // rather than showing a row with no date at all.
+  const observed = first.occurred_at ?? first.detected_at;
+
   return (
     <div className="min-w-0">
       <div className="flex items-center gap-1.5">
@@ -55,8 +60,10 @@ function SignalCell({ prospect }: { prospect: Prospect }) {
         <span className="truncate text-sm text-fg">{first.title}</span>
       </div>
       <p className="mt-0.5 text-xs text-fg-subtle">
-        {first.event_type.replace(/_/g, " ")}
-        {first.occurred_at ? ` · ${timeAgo(first.occurred_at)}` : null}
+        {first.signal_type.replace(/_/g, " ")}
+        {observed ? ` · ${timeAgo(observed)}` : null}
+        {first.evidence_count ? ` · ${first.evidence_count} source` : null}
+        {first.evidence_count > 1 ? "s" : ""}
         {rest.length ? ` · +${rest.length} more` : null}
       </p>
     </div>

@@ -29,6 +29,7 @@ from apps.ai.providers.base import (
     AIProvider,
     AIProviderError,
     AIProviderUnavailable,
+    AIQuotaExhausted,
     AIRateLimited,
     AIRefused,
     CompletionRequest,
@@ -88,6 +89,14 @@ class AnthropicProvider(AIProvider):
         except anthropic.APIConnectionError as exc:
             raise AIProviderUnavailable("Could not reach the model provider") from exc
         except anthropic.APIStatusError as exc:
+            # Anthropic reports an empty balance as a 4xx carrying this
+            # message, not as a 429 the way OpenAI does. Checked before the
+            # generic branch because it is the one provider failure an
+            # operator can actually fix -- see AIQuotaExhausted.
+            if "credit balance" in str(exc).lower():
+                raise AIQuotaExhausted(
+                    "The Anthropic account has no credit remaining. Add credits to continue."
+                ) from exc
             # 5xx is worth retrying; a 4xx is our bug and will fail identically.
             error: AIProviderError = (
                 AIProviderUnavailable(f"Provider error {exc.status_code}")

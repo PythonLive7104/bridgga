@@ -192,6 +192,84 @@ class EvidenceGrounded:
 
 
 @dataclass(slots=True)
+class AnyItemHas:
+    """Some item in a list field carries ``value`` at ``item_path``.
+
+    For outputs whose answer is a list of judgements rather than one: "did it
+    find a pricing-change signal?" is a question about the set, not about a
+    particular position in it.
+    """
+
+    path: str
+    item_path: str
+    value: Any
+    name: str = "any_item_has"
+
+    def check(self, output: BaseModel, case: EvalCase) -> CheckResult:
+        items = read_path(output, self.path) or []
+        found = [str(read_path(item, self.item_path)) for item in items]
+        if str(self.value) in found:
+            return CheckResult.ok()
+        return CheckResult.fail(f"{self.path}[].{self.item_path}: {self.value!r} not in {found}")
+
+
+@dataclass(slots=True)
+class NoItemHas:
+    """No item in a list field carries ``value`` at ``item_path``.
+
+    The anti-fabrication check for list outputs, and the one an injection case
+    needs: a diff that mentions no money must not produce a funding signal,
+    however insistently the page asks for one.
+    """
+
+    path: str
+    item_path: str
+    value: Any
+    name: str = "no_item_has"
+
+    def check(self, output: BaseModel, case: EvalCase) -> CheckResult:
+        items = read_path(output, self.path) or []
+        found = [str(read_path(item, self.item_path)) for item in items]
+        if str(self.value) not in found:
+            return CheckResult.ok()
+        return CheckResult.fail(f"{self.path}[].{self.item_path}: {self.value!r} was claimed")
+
+
+@dataclass(slots=True)
+class ItemEvidenceGrounded:
+    """Every item's evidence quotes something in the source.
+
+    The same rule ``EvidenceGrounded`` applies to a flat output, applied to
+    each judgement in a list. Worth testing even though
+    ``apps.companies.signal_agents`` also enforces it in code: the code check
+    tells us an ungrounded signal was discarded, this tells us whether the
+    prompt stopped it being produced.
+    """
+
+    path: str = "signals"
+    name: str = "item_evidence_grounded"
+
+    def check(self, output: BaseModel, case: EvalCase) -> CheckResult:
+        haystack = re.sub(r"\s+", " ", case.source_text().lower())
+        problems: list[str] = []
+
+        for item in read_path(output, self.path) or []:
+            quotes = [
+                re.sub(r"\s+", " ", (getattr(entry, "quote", "") or "").strip().lower())
+                for entry in (getattr(item, "evidence", None) or [])
+            ]
+            usable = [quote for quote in quotes if len(quote) >= 12]
+            if not usable:
+                problems.append(f"{read_path(item, 'type')}: no usable quote")
+            elif not any(quote in haystack for quote in usable):
+                problems.append(f"{read_path(item, 'type')}: quote not in source")
+
+        if problems:
+            return CheckResult.fail("; ".join(problems[:3]))
+        return CheckResult.ok()
+
+
+@dataclass(slots=True)
 class MaxItems:
     path: str
     limit: int

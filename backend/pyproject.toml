@@ -72,6 +72,8 @@ addopts = [
 markers = [
     "tenancy: asserts cross-tenant isolation",
     "security: asserts an authorisation or injection control",
+    # Skipped unless --live-ai is passed. These call a paid API and cost money.
+    "live_ai: calls the real configured AI provider",
 ]
 filterwarnings = [
     "error::DeprecationWarning:apps.*",

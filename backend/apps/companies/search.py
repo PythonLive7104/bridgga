@@ -51,10 +51,15 @@ class ProspectFilters:
     revenue_ranges: list[str] = field(default_factory=list)
     business_models: list[str] = field(default_factory=list)
     technologies: list[str] = field(default_factory=list)
-    #: Signal types (apps.ai.schemas.SignalType) observed as company events.
+    #: Signal types (apps.ai.schemas.SignalType) with a live LeadSignal.
     signals: list[str] = field(default_factory=list)
-    #: Only companies with an event of a listed type in the last N days.
+    #: Only companies whose signal of a listed type was observed in the last
+    #: N days.
     signal_within_days: int = 0
+    #: Include signals that have expired or been dismissed. Off by default:
+    #: a signal that went stale is not a reason to call anybody, which is the
+    #: whole point of giving signals an expiry (PRD section 33).
+    include_stale_signals: bool = False
     has_contact: bool | None = None
     contactable_only: bool = False
     founded_after: int | None = None
@@ -95,6 +100,7 @@ class ProspectFilters:
             technologies=many("technology"),
             signals=many("signal"),
             signal_within_days=number("signal_within_days") or 0,
+            include_stale_signals=bool(flag("include_stale_signals")),
             has_contact=flag("has_contact"),
             contactable_only=bool(flag("contactable")),
             founded_after=number("founded_after"),
@@ -174,14 +180,33 @@ def search_companies(
 
 
 def _signal_condition(filters: ProspectFilters) -> Q:
-    condition = Q(events__event_type__in=filters.signals)
-    if filters.signal_within_days:
-        from django.utils import timezone
+    """Companies carrying a live signal of a requested type.
 
+    Returned as one ``Q`` applied in a single ``filter()`` call on purpose.
+    Split across two calls, Django joins the relation twice and the conditions
+    stop describing the same row: a company with an expired funding signal and
+    a live hiring signal would match "live funding signal", which is a false
+    positive a salesperson only discovers in front of the buyer.
+    """
+    from django.utils import timezone
+
+    condition = Q(signals__signal_type__in=filters.signals)
+
+    if not filters.include_stale_signals:
+        condition &= Q(signals__dismissed_at__isnull=True) & Q(
+            signals__expires_at__gt=timezone.now()
+        )
+
+    if filters.signal_within_days:
         since = timezone.now() - timezone.timedelta(days=filters.signal_within_days)
-        # Recency is the whole point of a buying signal: a funding round from
-        # three years ago is history, not intent.
-        condition &= Q(events__occurred_at__gte=since)
+        # Observation time, which is the event date where one is known and the
+        # detection date otherwise. A careers page says a role is open, not
+        # when it was posted, so `occurred_at` is legitimately null and
+        # comparing it alone would silently drop every hiring signal.
+        condition &= Q(signals__occurred_at__gte=since) | (
+            Q(signals__occurred_at__isnull=True) & Q(signals__detected_at__gte=since)
+        )
+
     return condition
 
 

@@ -179,12 +179,30 @@ def test_duplicate_case_id_is_refused() -> None:
         register_case(EvalCase(id=existing.id, prompt_name="company_profile", user_content="x"))
 
 
+#: Phrasings that actually attempt an instruction override. Matched case
+#: insensitively, because an injection payload shouting in capitals is still
+#: an injection payload -- the first version of this test demanded one exact
+#: capitalisation and failed on a case that was a perfectly good attack.
+_OVERRIDE_PHRASINGS = (
+    "system override",
+    "ignore all previous",
+    "ignore previous",
+    "ignore the above",
+    "disregard",
+    "you are now",
+    "new instructions",
+)
+
+
 def test_security_cases_exist_for_prompt_injection() -> None:
     """The guardrail in GUARDRAILS needs a case that would catch its removal."""
     injection = all_cases(tag="injection")
     assert injection, "no prompt-injection eval case"
     for item in injection:
-        assert "SYSTEM OVERRIDE" in item.user_content or "Ignore" in item.user_content
+        content = item.user_content.lower() + item.cacheable_context.lower()
+        assert any(phrase in content for phrase in _OVERRIDE_PHRASINGS), (
+            f"{item.id} is tagged `injection` but carries no override attempt"
+        )
 
 
 def test_compliance_cases_assert_opt_out_detection() -> None:

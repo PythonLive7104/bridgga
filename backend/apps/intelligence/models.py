@@ -29,6 +29,20 @@ class SnapshotStatus(models.TextChoices):
 class WebsiteSnapshot(TenantOwnedModel):
     """One fetch of one URL, with what was extracted from it."""
 
+    # Set when the fetch was of a *prospect's* site rather than the customer's
+    # own. Without it, finding the snapshots for a company means matching URLs
+    # against a domain string, which is both slow and wrong the moment a
+    # company owns two hostnames. The signal detectors diff consecutive
+    # snapshots of the same page, so this is the key that pairs them.
+    company = models.ForeignKey(
+        "companies.Company",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="snapshots",
+        verbose_name=_("company"),
+    )
+
     requested_url = models.URLField(_("requested URL"), max_length=2048)
     final_url = models.URLField(_("final URL"), max_length=2048, blank=True)
 
@@ -70,6 +84,12 @@ class WebsiteSnapshot(TenantOwnedModel):
                 name="snapshot_org_url_idx",
             ),
             models.Index(fields=["organization", "status"], name="snapshot_org_status_idx"),
+            # The detector query: this company's crawls of this page, newest
+            # first, so a before/after pair is one index read.
+            models.Index(
+                fields=["company", "requested_url", "-fetched_at"],
+                name="snapshot_company_page_idx",
+            ),
         ]
 
     def __str__(self) -> str:

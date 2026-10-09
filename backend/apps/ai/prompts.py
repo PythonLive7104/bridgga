@@ -26,6 +26,7 @@ from apps.ai.schemas import (
     ICPDraft,
     MarketRecommendations,
     ReplyClassification,
+    SignalInterpretation,
 )
 
 # Prepended to every prompt. Separate constant so a change to the standing
@@ -198,6 +199,47 @@ Specific guidance:
 - Put anything that would make a market harder in `cautions` -- a language the
   company does not operate in, a channel it cannot use, a regulatory
   constraint. An empty list is fine when nothing stands out.
+""",
+    )
+)
+
+
+SIGNAL_INTERPRETATION = register(
+    Prompt(
+        name="signal_interpretation",
+        version=1,
+        # Cheap tier, and it must stay cheap: this runs per prospect whose
+        # site changed, which is the highest-volume model call in Phase 2.
+        # The deterministic detectors have already established *that*
+        # something changed; this call only has to say what.
+        tier=Tier.CHEAP,
+        output_schema=SignalInterpretation,
+        max_output_tokens=2_000,
+        instructions="""You are shown what changed on one company's website between two crawls:
+added and removed headings, new pages in the navigation, and the sentences
+that are new since the previous crawl.
+
+Decide whether any of it is a buying signal -- an observable change that gives
+a salesperson a specific reason to contact this company now.
+
+Specific guidance:
+- **Returning no signals is usually correct.** Most website changes are
+  copy edits, new blog posts, rotated testimonials and design tweaks. None of
+  those is a reason to call. Return an empty list and say so in `reasoning`.
+- Choose `type` from the fixed list, and only where the change itself shows
+  it. A new /pricing page is `pricing_change` or `new_pages`; a new office
+  address is `new_office`; a launch announcement is `product_launch`.
+- **Never infer a signal the change does not state.** Do not conclude funding
+  from a redesign, hiring from a careers link that was always there, or
+  expansion from a new language option. If the text does not say it, it did
+  not happen.
+- Every signal must carry at least one `evidence` entry whose `quote` is taken
+  **verbatim** from the supplied change. A signal without a quote from the
+  material shown will be discarded.
+- `title` is what a salesperson would say: "Launched a fleet-tracking module",
+  not "The website has been updated with new product information".
+- Set `confidence` to `low` when the change is suggestive rather than
+  explicit, and say what is missing in `why_it_matters`.
 """,
     )
 )

@@ -250,14 +250,62 @@ export interface ProspectContact {
   contactable: boolean;
 }
 
+/** One piece of support for a claim (PRD section 58). */
+export interface SignalEvidence {
+  claim: string;
+  source_type: string;
+  source_url: string;
+  quote: string;
+  retrieved_at: string | null;
+  confidence: string;
+}
+
+/** The compact form shown on a prospect row. */
 export interface ProspectSignal {
   id: string;
-  event_type: string;
+  signal_type: string;
   title: string;
   occurred_at: string | null;
-  url: string;
-  source: string;
+  detected_at: string;
+  expires_at: string;
+  strength: number;
+  decayed_strength: number;
   confidence: string;
+  source: string;
+  source_url: string;
+  evidence_count: number;
+}
+
+/** A buying signal in full (PRD section 33). */
+export interface LeadSignal {
+  id: string;
+  company: string;
+  company_name: string;
+  company_domain: string;
+  signal_type: string;
+  title: string;
+  description: string;
+  detector: string;
+  strength: number;
+  decayed_strength: number;
+  freshness: number;
+  confidence: string;
+  occurred_at: string | null;
+  detected_at: string;
+  last_seen_at: string | null;
+  expires_at: string;
+  age_days: number;
+  is_active: boolean;
+  is_dismissed: boolean;
+  dismiss_reason: string;
+  source: string;
+  source_url: string;
+  evidence: SignalEvidence[];
+}
+
+export interface SignalSummary {
+  types: { value: string; count: number }[];
+  total: number;
 }
 
 export interface ProspectLead {

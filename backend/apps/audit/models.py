@@ -56,6 +56,8 @@ class AuditAction(models.TextChoices):
 
     LEADS_IMPORTED = "leads_imported", _("Leads imported")
 
+    SIGNAL_DISMISSED = "signal_dismissed", _("Buying signal dismissed")
+
     CAMPAIGN_LAUNCHED = "campaign_launched", _("Campaign launched")
     CAMPAIGN_PAUSED = "campaign_paused", _("Campaign paused")
     AUTOPILOT_ENABLED = "autopilot_enabled", _("AI autopilot enabled")

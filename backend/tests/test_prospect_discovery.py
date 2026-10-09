@@ -22,7 +22,7 @@ from django.utils import timezone
 from apps.common.models import ContactStatus
 from apps.common.tenancy import tenant_context
 from apps.companies import services as company_services
-from apps.companies.models import CompanyEvent, CompanyStatus, SavedSearch
+from apps.companies.models import CompanyStatus, LeadSignal, SavedSearch
 from apps.companies.search import ProspectFilters, search_backend, search_companies
 from apps.contacts import services as contact_services
 from apps.leads import services as lead_services
@@ -78,6 +78,26 @@ def prospects(organization: Any) -> dict[str, Any]:
         )
         made[key] = company
     return made
+
+
+def make_signal(organization: Any, company: Any, **fields: Any) -> LeadSignal:
+    """A live buying signal, unless the caller says otherwise.
+
+    The filters are what is under test here, so the signal is created directly
+    rather than detected. The detectors that produce one are covered in
+    tests/test_signal_engine.py.
+    """
+    defaults = {
+        "signal_type": "hiring",
+        "title": "Hiring three fleet supervisors",
+        "strength": 70,
+        "detector": "test",
+        "fingerprint": "test-fingerprint",
+    }
+    with tenant_context(organization=organization):
+        return LeadSignal.objects.create(
+            organization=organization, company=company, **(defaults | fields)
+        )
 
 
 def run(organization: Any, **kwargs: Any) -> list[str]:
@@ -141,31 +161,79 @@ def test_filter_by_technology(organization: Any, prospects: dict) -> None:
 
 
 def test_filter_by_signal(organization: Any, prospects: dict) -> None:
-    with tenant_context(organization=organization):
-        CompanyEvent.objects.create(
-            organization=organization,
-            company=prospects["savanna"],
-            event_type="hiring",
-            title="Hiring three fleet supervisors",
-            occurred_at=timezone.now(),
-        )
+    make_signal(organization, prospects["savanna"])
 
     assert run(organization, signals=["hiring"]) == ["Savanna Freight"]
 
 
-def test_a_stale_signal_can_be_excluded(organization: Any, prospects: dict) -> None:
+def test_an_expired_signal_is_not_a_reason_to_call(organization: Any, prospects: dict) -> None:
     """Recency is the point: a funding round from 2022 is history, not intent."""
-    with tenant_context(organization=organization):
-        CompanyEvent.objects.create(
-            organization=organization,
-            company=prospects["savanna"],
-            event_type="funding",
-            title="Series A",
-            occurred_at=timezone.now() - timezone.timedelta(days=900),
-        )
+    make_signal(
+        organization,
+        prospects["savanna"],
+        signal_type="funding",
+        title="Series A",
+        occurred_at=timezone.now() - timezone.timedelta(days=900),
+        expires_at=timezone.now() - timezone.timedelta(days=720),
+    )
 
-    assert run(organization, signals=["funding"]) == ["Savanna Freight"]
-    assert run(organization, signals=["funding"], signal_within_days=90) == []
+    assert run(organization, signals=["funding"]) == []
+    # Still findable on purpose, for someone researching a company's history.
+    assert run(organization, signals=["funding"], include_stale_signals=True) == ["Savanna Freight"]
+
+
+def test_a_dismissed_signal_stops_matching(organization: Any, prospects: dict) -> None:
+    """A person said this was not relevant. The filter has to believe them."""
+    signal = make_signal(organization, prospects["savanna"])
+    assert run(organization, signals=["hiring"]) == ["Savanna Freight"]
+
+    with tenant_context(organization=organization):
+        signal.dismissed_at = timezone.now()
+        signal.save(update_fields=["dismissed_at"])
+
+    assert run(organization, signals=["hiring"]) == []
+
+
+def test_signal_recency_uses_the_detection_date_when_undated(
+    organization: Any, prospects: dict
+) -> None:
+    """A careers page says a role is open, not when it was posted.
+
+    ``occurred_at`` is legitimately null for most hiring signals, so a filter
+    that compared only that column would silently match nothing.
+    """
+    make_signal(
+        organization,
+        prospects["savanna"],
+        occurred_at=None,
+        detected_at=timezone.now() - timezone.timedelta(days=3),
+    )
+
+    assert run(organization, signals=["hiring"], signal_within_days=7) == ["Savanna Freight"]
+    assert run(organization, signals=["hiring"], signal_within_days=1) == []
+
+
+def test_a_live_signal_of_another_type_does_not_satisfy_the_filter(
+    organization: Any, prospects: dict
+) -> None:
+    """The type and the liveness have to describe the same signal row.
+
+    Applied as two separate filter calls, Django joins the relation twice and
+    this company would match "live funding signal" on the strength of having
+    an expired funding signal and a live hiring one.
+    """
+    make_signal(
+        organization,
+        prospects["savanna"],
+        signal_type="funding",
+        title="Old round",
+        fingerprint="old-funding",
+        expires_at=timezone.now() - timezone.timedelta(days=10),
+    )
+    make_signal(organization, prospects["savanna"], fingerprint="live-hiring")
+
+    assert run(organization, signals=["funding"]) == []
+    assert run(organization, signals=["hiring"]) == ["Savanna Freight"]
 
 
 def test_filter_by_whether_a_contact_is_known(organization: Any, prospects: dict) -> None:
@@ -300,14 +368,7 @@ def test_the_prospect_table_carries_the_columns_the_prd_names(
         source=source,
         person=person,
     )
-    with tenant_context(organization=organization):
-        CompanyEvent.objects.create(
-            organization=organization,
-            company=prospects["harmattan"],
-            event_type="hiring",
-            title="Hiring fleet supervisors",
-            occurred_at=timezone.now(),
-        )
+    make_signal(organization, prospects["harmattan"], title="Hiring fleet supervisors")
 
     response = auth_client(owner, organization).get(f"{PROSPECTS_URL}?q=Harmattan")
 
@@ -319,8 +380,32 @@ def test_the_prospect_table_carries_the_columns_the_prd_names(
     assert row["industry"]
     assert row["contact"]["job_title"] == "Fleet Manager"
     assert row["contact"]["contactable"] is True
-    assert row["signals"][0]["event_type"] == "hiring"
+    assert row["signals"][0]["signal_type"] == "hiring"
+    assert row["signals"][0]["title"] == "Hiring fleet supervisors"
     assert row["lead"]["status"] == "new"
+
+
+def test_the_api_returns_rows_in_the_order_the_search_chose(
+    organization: Any, owner: Any, auth_client: Callable[..., Any], prospects: dict
+) -> None:
+    """Pagination must not reorder a ranked result set.
+
+    Cursor pagination imposes its own ordering on whatever queryset it is
+    given, because a cursor is only meaningful against an ordering it
+    controls -- so it silently replaced the ranking with "newest first". On
+    Postgres that meant a text search returned the most recent matches
+    instead of the best ones, which is invisible until someone compares the
+    list against what they expected to be at the top. With no query the
+    ordering is alphabetical, which is assertable on either backend.
+    """
+    response = auth_client(owner, organization).get(PROSPECTS_URL)
+
+    assert response.status_code == 200
+    assert [row["name"] for row in response.data["results"]] == [
+        "Harmattan Fleet",
+        "LedgerLite",
+        "Savanna Freight",
+    ]
 
 
 def test_a_prospect_without_a_contact_or_lead_still_renders(

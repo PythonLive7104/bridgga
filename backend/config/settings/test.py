@@ -29,6 +29,19 @@ DATABASES = {
     )
 }
 
+# The stub provider, always, whatever backend/.env says.
+#
+# This is a spend control, not a speed one. Celery runs eagerly here, so a test
+# that posts to /company-profile/analyze runs the agent inline, and an agent
+# called without an explicit provider asks the registry for one. With
+# AI_PROVIDER=openai and a real key in backend/.env -- the normal state of a
+# working machine -- that is a live, billed API call on every run of the suite,
+# with no indication in the output that money was spent.
+#
+# Tests that want a real model call ask for one explicitly: mark them `live_ai`
+# and run with --live-ai. See tests/conftest.py.
+AI_PROVIDER = "stub"
+
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}

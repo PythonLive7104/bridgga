@@ -1,8 +1,18 @@
-"""Shared test fixtures."""
+"""Shared test fixtures, and the guard that keeps the suite free.
+
+The default run never calls a paid API. That is enforced here rather than left
+to discipline, because the failure mode is silent: a test that forgets to pass
+a stub provider still passes, just with a charge attached and nothing in the
+output to say so.
+
+A test that genuinely needs a real model marks itself ``live_ai`` and is
+skipped unless the suite is run with ``--live-ai``.
+"""
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import os
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
@@ -14,6 +24,81 @@ from apps.organizations.models import Membership, Organization, Workspace
 from apps.organizations.roles import Role
 
 User = get_user_model()
+
+
+def pytest_addoption(parser: Any) -> None:
+    parser.addoption(
+        "--live-ai",
+        action="store_true",
+        default=False,
+        help="Run tests marked `live_ai` against the configured provider. This spends money.",
+    )
+
+
+def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
+    """Skip the live-model tests unless they were asked for by name.
+
+    Opt-in rather than opt-out: a developer who has a key in their environment
+    should not discover that fact from their bill.
+    """
+    if config.getoption("--live-ai"):
+        return
+    skip = pytest.mark.skip(reason="needs --live-ai (calls a paid API)")
+    for item in items:
+        if "live_ai" in item.keywords:
+            item.add_marker(skip)
+
+
+@pytest.fixture(autouse=True)
+def _no_accidental_spend(request: Any) -> Iterator[None]:
+    """Fail a non-live test that reaches for a real provider.
+
+    ``config.settings.test`` pins ``AI_PROVIDER`` to the stub, so this is the
+    second line of defence: it catches a test that overrides the setting, and
+    it catches the provider cache carrying a real client in from a live test
+    earlier in the session.
+    """
+    from apps.ai.registry import get_provider, reset_provider_cache
+
+    live = "live_ai" in request.keywords
+    reset_provider_cache()
+    try:
+        if not live:
+            name = get_provider().name
+            if name != "stub":
+                pytest.fail(
+                    f"The AI provider resolved to {name!r} in a test that is not marked "
+                    "`live_ai`. That is a billed API call. Pass an explicit "
+                    "StubProvider, or mark the test `live_ai`."
+                )
+        yield
+    finally:
+        reset_provider_cache()
+
+
+@pytest.fixture
+def live_provider() -> Any:
+    """The real configured provider, for a ``live_ai`` test.
+
+    Skips rather than fails when no key is present: a contributor without one
+    should still be able to run the live suite and see honest skips.
+    """
+    from django.test import override_settings
+
+    from apps.ai.registry import get_provider, reset_provider_cache
+
+    provider_name = os.environ.get("AI_PROVIDER", "").strip().lower()
+    keys = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
+
+    if provider_name not in keys:
+        pytest.skip("Set AI_PROVIDER to openai or anthropic to run the live tests.")
+    if not os.environ.get(keys[provider_name]):
+        pytest.skip(f"{keys[provider_name]} is not set.")
+
+    reset_provider_cache()
+    with override_settings(AI_PROVIDER=provider_name):
+        yield get_provider()
+    reset_provider_cache()
 
 
 @pytest.fixture
