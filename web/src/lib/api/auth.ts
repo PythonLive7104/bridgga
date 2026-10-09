@@ -36,7 +36,16 @@ export class AuthError extends Error {
 
   constructor(status: number, body: AuthResponse) {
     const first = body.errors?.[0];
-    super(first?.message ?? "Authentication failed.");
+    // allauth answers 409 when a session already exists, with no `errors`
+    // array -- so the old fallback reported "Authentication failed" to someone
+    // who was, in fact, already signed in.
+    const fallback =
+      status === 409
+        ? "You are already signed in."
+        : status === 429
+          ? "Too many attempts. Wait a few minutes and try again."
+          : "Authentication failed.";
+    super(first?.message ?? fallback);
     this.name = "AuthError";
     this.status = status;
     this.flows = body.data?.flows ?? [];
@@ -50,6 +59,11 @@ export class AuthError extends Error {
   /** Signup succeeded but the address needs confirming before sign-in. */
   get needsEmailVerification(): boolean {
     return this.flows.some((flow) => flow.id === "verify_email");
+  }
+
+  /** A session already exists. Not a failure: the caller should move on. */
+  get alreadyAuthenticated(): boolean {
+    return this.status === 409;
   }
 
   /** Password was correct; a second factor is still required. */

@@ -161,3 +161,22 @@ def test_verify_email_command_rejects_an_unknown_address(settings: Any) -> None:
     settings.DEBUG = True
     with pytest.raises(CommandError, match="No account found"):
         call_command("verify_email", "nobody@example.test", stdout=StringIO())
+
+
+def test_logging_in_twice_answers_409_with_no_error_body(api_client: Any, settings: Any) -> None:
+    """Pins the shape the client has to interpret.
+
+    allauth refuses a second login while a session exists, and the 409 it
+    returns carries no `errors` array. A client that assumes one reports
+    "Authentication failed" to somebody who is, in fact, signed in -- which is
+    what happened. If this response ever grows an error body, the client's
+    special case should be revisited rather than silently kept.
+    """
+    settings.ACCOUNT_EMAIL_VERIFICATION = "none"
+    credentials = {"email": "twice@example.test", "password": "a-long-enough-passphrase"}
+    api_client.post(SIGNUP_URL, credentials, format="json")
+
+    again = api_client.post("/auth/browser/v1/auth/login", credentials, format="json")
+
+    assert again.status_code == 409
+    assert "errors" not in again.json()

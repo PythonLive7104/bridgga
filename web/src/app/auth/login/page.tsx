@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PasswordField } from "@/components/ui/password-field";
+import { useSession } from "@/lib/hooks/use-session";
 import {
   AuthError,
   authenticateMfa,
@@ -37,8 +38,30 @@ export default function LoginPage() {
     void primeCsrf();
   }, []);
 
+  // Someone who still holds a session does not need this form, and submitting
+  // it would only produce a 409. Sending them on is both the honest answer and
+  // the one they wanted.
+  const { me } = useSession();
+  React.useEffect(() => {
+    if (me) router.replace(me.memberships.length ? "/dashboard" : "/onboarding");
+  }, [me, router]);
+
+  // Where a signed-in user belongs: the dashboard is empty and useless until
+  // an organization exists, so someone without one goes to make it.
+  const landing = () =>
+    me && me.memberships.length === 0 ? "/onboarding" : "/dashboard";
+  const toDashboard = () => router.replace(landing());
+
   function handleFailure(caught: unknown): void {
     if (caught instanceof AuthError) {
+      // Not a failure. A stale tab, a back button, or simply a session that
+      // outlived the last visit lands here, and telling someone their
+      // credentials were wrong while they hold a valid session is the most
+      // confusing answer available.
+      if (caught.alreadyAuthenticated) {
+        toDashboard();
+        return;
+      }
       if (caught.needsMfa) {
         setStage("mfa");
         setError(null);
@@ -68,8 +91,6 @@ export default function LoginPage() {
       setBusy(false);
     }
   }
-
-  const toDashboard = () => router.replace("/dashboard");
 
   return (
     <div className="space-y-6">
