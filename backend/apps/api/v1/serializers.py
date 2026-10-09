@@ -19,6 +19,8 @@ from apps.accounts.models import User
 from apps.ai.schemas import SignalType
 from apps.audit.models import AuditLog
 from apps.billing.models import CreditEntry, Plan, Subscription
+from apps.companies.models import Company, CompanyEvent, SavedSearch
+from apps.contacts.models import Person
 from apps.intelligence.models import (
     ICP,
     CompanyProfile,
@@ -555,3 +557,130 @@ class ImportMappingSerializer(serializers.Serializer):
                 "Map at least one of company, website or email, or rows cannot be matched."
             )
         return mapping
+
+
+class ProspectContactSerializer(serializers.ModelSerializer):
+    """The one contact a prospect row shows (PRD section 117, "contact")."""
+
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    name = serializers.CharField(source="display_name", read_only=True)
+    contactable = serializers.BooleanField(source="can_be_emailed", read_only=True)
+
+    class Meta:
+        model = Person
+        fields = ["id", "name", "job_title", "email", "email_status", "contactable"]
+        read_only_fields = fields
+
+
+class ProspectSignalSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="public_id", read_only=True)
+
+    class Meta:
+        model = CompanyEvent
+        fields = ["id", "event_type", "title", "occurred_at", "url", "source", "confidence"]
+        read_only_fields = fields
+
+
+class ProspectSerializer(serializers.ModelSerializer):
+    """One row of the prospect table (PRD section 117).
+
+    The columns the PRD names are assembled here rather than left to the
+    client: `score`, `status`, `owner` and `last activity` live on the Lead,
+    `signals` on the company's events, and a table that had to stitch those
+    together itself would make N+1 queries to draw one page.
+    """
+
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    contact = serializers.SerializerMethodField()
+    signals = serializers.SerializerMethodField()
+    lead = serializers.SerializerMethodField()
+    is_stale = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Company
+        fields = [
+            "id",
+            "name",
+            "domain",
+            "website",
+            "country",
+            "city",
+            "industry",
+            "employee_range",
+            "description",
+            "status",
+            "source",
+            "last_verified_at",
+            "is_stale",
+            "contact",
+            "signals",
+            "lead",
+        ]
+        read_only_fields = fields
+
+    @extend_schema_field(ProspectContactSerializer(allow_null=True))
+    def get_contact(self, obj: Company) -> dict | None:
+        # `prefetched_people` is set by the view; falling back to a query here
+        # would reintroduce the N+1 the prefetch exists to avoid.
+        people = getattr(obj, "prefetched_people", None)
+        if people is None:
+            return None
+        best = next((person for person in people if person.can_be_emailed), None)
+        chosen = best or (people[0] if people else None)
+        return ProspectContactSerializer(chosen).data if chosen else None
+
+    @extend_schema_field(ProspectSignalSerializer(many=True))
+    def get_signals(self, obj: Company) -> list:
+        return ProspectSignalSerializer(getattr(obj, "recent_events", []), many=True).data
+
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "id": {"type": "string"},
+                "status": {"type": "string"},
+                "score": {"type": "integer"},
+                "owner": {"type": "string", "nullable": True},
+                "last_activity_at": {"type": "string", "nullable": True},
+            },
+        }
+    )
+    def get_lead(self, obj: Company) -> dict | None:
+        leads = getattr(obj, "prefetched_leads", None)
+        if not leads:
+            return None
+        lead = leads[0]
+        return {
+            "id": str(lead.public_id),
+            "status": lead.status,
+            "score": lead.score,
+            "owner": lead.owner.get_full_name() if lead.owner else None,
+            "last_activity_at": lead.last_activity_at,
+        }
+
+
+class SavedSearchSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    created_by_email = serializers.CharField(source="created_by.email", read_only=True)
+
+    class Meta:
+        model = SavedSearch
+        fields = [
+            "id",
+            "name",
+            "description",
+            "filters",
+            "is_shared",
+            "created_by_email",
+            "last_run_at",
+            "last_result_count",
+            "created_at",
+        ]
+        read_only_fields = [
+            "id",
+            "created_by_email",
+            "last_run_at",
+            "last_result_count",
+            "created_at",
+        ]

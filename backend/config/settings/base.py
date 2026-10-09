@@ -90,6 +90,11 @@ DJANGO_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # Needed from Phase 2.9 for full-text search, trigram similarity and the
+    # GIN indexes behind prospect discovery (ADR 0006 anticipated this point).
+    # Harmless on SQLite: it contributes no models or tables, and the search
+    # layer dispatches on the connection vendor.
+    "django.contrib.postgres",
     "django.contrib.sites",
 ]
 

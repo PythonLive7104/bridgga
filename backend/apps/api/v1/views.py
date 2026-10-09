@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.db import transaction
+from django.db.models import Q
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -22,6 +23,8 @@ from apps.billing.models import CreditEntry, Subscription
 from apps.common.permissions import HasCapability, RequireOrganization
 from apps.common.tenancy import unscoped
 from apps.common.viewsets import TenantReadOnlyViewSet, TenantScopedViewSet
+from apps.companies import search
+from apps.companies.models import Company, CompanyEvent, SavedSearch
 from apps.intelligence import agents, icp_agents, market_agents, tasks
 from apps.intelligence.models import (
     ICP,
@@ -824,3 +827,162 @@ class ImportJobViewSet(TenantScopedViewSet):
     def fields(self, request: Request) -> Response:
         """The fields a column may be mapped to, for the mapping interface."""
         return Response(importing.CANONICAL_FIELDS)
+
+
+class ProspectViewSet(TenantReadOnlyViewSet):
+    """Prospect discovery (PRD sections 29, 103, 117).
+
+    Read-only: a prospect row is assembled from a company, its contacts, its
+    events and its lead, and writing to it means writing to one of those. The
+    actions section 117 lists live on their own endpoints for the same reason.
+
+    The query is kept to a fixed number of statements however many rows come
+    back -- the alternative draws one page of fifty prospects with two hundred
+    queries, which is the difference between the two-second target and ten.
+    """
+
+    serializer_class = s.ProspectSerializer
+    queryset = Company.objects.all()
+    required_capability = Capability.PROSPECT_VIEW
+
+    @staticmethod
+    def prefetched_queryset() -> Any:
+        """Companies with everything a prospect row renders, in fixed queries.
+
+        Shared with the saved-search results endpoint, so the two cannot
+        diverge into one being fast and the other quietly not.
+        """
+        from django.db.models import Prefetch
+
+        from apps.contacts.models import Person
+        from apps.leads.models import Lead
+
+        recent_events = CompanyEvent.all_objects.order_by("-occurred_at", "-id")
+        return Company.all_objects.prefetch_related(
+            Prefetch(
+                "people",
+                queryset=Person.all_objects.order_by("-is_decision_maker", "id"),
+                to_attr="prefetched_people",
+            ),
+            Prefetch("events", queryset=recent_events, to_attr="recent_events"),
+            Prefetch(
+                "leads",
+                queryset=Lead.all_objects.select_related("owner").order_by("-score"),
+                to_attr="prefetched_leads",
+            ),
+        )
+
+    def get_base_queryset(self) -> Any:
+        return self.prefetched_queryset()
+
+    def filter_queryset(self, queryset: Any) -> Any:
+        filters = search.ProspectFilters.from_query_params(self.request.query_params)
+        return search.search_companies(
+            organization=self.request.organization, filters=filters, queryset=queryset
+        )
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        response = super().list(request, *args, **kwargs)
+        # Stated rather than implied: full-text ranking is available on
+        # Postgres and not on SQLite, and a caller comparing results across
+        # environments should be able to see which answered.
+        response.data["search_backend"] = search.search_backend()
+        return response
+
+    @extend_schema(responses={200: {"type": "object"}})
+    @action(detail=False, methods=["get"], url_path="facets")
+    def facets(self, request: Request) -> Response:
+        """The values actually present, for building the filter controls.
+
+        Offering every country in the world when a workspace holds prospects
+        in three is a filter nobody can use.
+        """
+        from django.db.models import Count
+
+        base = Company.all_objects.filter(organization=request.organization).exclude(
+            status__in=["duplicate", "disqualified"]
+        )
+
+        def top(field_name: str, limit: int = 30) -> list[dict]:
+            return [
+                {"value": row[field_name], "count": row["count"]}
+                for row in base.exclude(**{field_name: ""})
+                .values(field_name)
+                .annotate(count=Count("id"))
+                .order_by("-count")[:limit]
+            ]
+
+        return Response(
+            {
+                "countries": top("country"),
+                "industries": top("industry"),
+                "employee_ranges": top("employee_range"),
+                "search_backend": search.search_backend(),
+            }
+        )
+
+
+class SavedSearchViewSet(TenantScopedViewSet):
+    """Named prospect searches (PRD section 29).
+
+    The filters are stored, never the results: running it again should surface
+    what matches today, not what matched when it was saved.
+    """
+
+    queryset = SavedSearch.objects.all()
+    serializer_class = s.SavedSearchSerializer
+    required_capability = Capability.PROSPECT_VIEW
+    write_capability = Capability.PROSPECT_MANAGE
+    search_fields = ["name"]
+
+    def get_base_queryset(self) -> Any:
+        queryset = SavedSearch.all_objects.select_related("created_by")
+        user = self.request.user
+        # A private search belongs to whoever made it; a shared one is the
+        # team's definition of a good prospect and everyone sees it.
+        #
+        # The third case is one with no creator at all. `created_by` is
+        # SET_NULL, so a private search outlives the person who made it, and
+        # without this it would be nobody's and therefore invisible to
+        # everyone -- a row that cannot be read, run or deleted. It is not
+        # private to anyone any more, so the workspace keeps it.
+        return queryset.filter(Q(is_shared=True) | Q(created_by=user) | Q(created_by__isnull=True))
+
+    def perform_create(self, serializer: Any) -> None:
+        serializer.save(organization=self.request.organization, created_by=self.request.user)
+
+    @extend_schema(responses={200: s.ProspectSerializer(many=True)})
+    @action(detail=True, methods=["get"], url_path="results")
+    def results(self, request: Request, **kwargs: Any) -> Response:
+        """Run the saved filters now."""
+        from django.utils import timezone
+
+        saved = self.get_object()
+        # Unknown keys are dropped rather than raising: a saved search written
+        # against an older filter set should still run, minus the part that no
+        # longer exists.
+        known = search.ProspectFilters.__dataclass_fields__
+        filters = search.ProspectFilters(
+            **{key: value for key, value in (saved.filters or {}).items() if key in known}
+        )
+
+        # Borrow the prospect view's prefetches rather than querying plainly:
+        # the serializer reads contacts, events and leads off each row, and
+        # without them this draws a page in two hundred queries.
+        queryset = search.search_companies(
+            organization=request.organization,
+            filters=filters,
+            queryset=ProspectViewSet.prefetched_queryset(),
+        )
+
+        saved.last_run_at = timezone.now()
+        saved.last_result_count = queryset.count()
+        saved.save(update_fields=["last_run_at", "last_result_count", "updated_at"])
+
+        page = self.paginate_queryset(queryset)
+        serializer = s.ProspectSerializer(page or queryset, many=True)
+        return (
+            self.get_paginated_response(serializer.data)
+            if page is not None
+            else Response(serializer.data)
+        )

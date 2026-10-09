@@ -13,6 +13,7 @@ provider contract ends.
 
 from __future__ import annotations
 
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
@@ -117,6 +118,23 @@ class Company(TenantOwnedModel, ProvenancedModel):
             models.Index(fields=["organization", "country"], name="company_org_country_idx"),
             models.Index(fields=["organization", "industry"], name="company_org_industry_idx"),
             models.Index(fields=["organization", "status"], name="company_org_status_idx"),
+            # Composites for the filter pairs a prospect list actually uses
+            # together (PRD section 29). Two single-column scans and a merge
+            # is slower than one range read.
+            models.Index(
+                fields=["organization", "country", "industry"],
+                name="company_org_geo_industry_idx",
+            ),
+            models.Index(
+                fields=["organization", "status", "country"], name="company_org_status_geo_idx"
+            ),
+            # Postgres only; created by migration 0003 and skipped on SQLite.
+            GinIndex(fields=["name"], name="company_name_trgm_idx", opclasses=["gin_trgm_ops"]),
+            GinIndex(
+                fields=["industry"],
+                name="company_industry_trgm_idx",
+                opclasses=["gin_trgm_ops"],
+            ),
         ]
 
     def __str__(self) -> str:
@@ -209,7 +227,25 @@ class CompanyEvent(TenantOwnedModel, ProvenancedModel):
                 fields=["organization", "event_type", "-occurred_at"],
                 name="event_org_type_date_idx",
             ),
+            models.Index(
+                fields=["company", "event_type", "-occurred_at"],
+                name="event_company_type_date_idx",
+            ),
         ]
 
     def __str__(self) -> str:
         return self.title
+
+
+# Re-exported for the app registry and a single import path.
+from apps.companies.saved_searches import SavedSearch  # noqa: E402
+
+__all__ = [
+    "Company",
+    "CompanyEvent",
+    "CompanyStatus",
+    "CompanyTechnology",
+    "EmployeeRange",
+    "SavedSearch",
+    "normalise_domain",
+]

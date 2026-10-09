@@ -30,6 +30,8 @@ router.register(
     "intelligence/markets", views.MarketRecommendationViewSet, basename="marketrecommendation"
 )
 router.register("leads/imports", views.ImportJobViewSet, basename="importjob")
+router.register("prospects", views.ProspectViewSet, basename="prospect")
+router.register("saved-searches", views.SavedSearchViewSet, basename="savedsearch")
 
 urlpatterns = [
     path("me", views.MeView.as_view(), name="me"),

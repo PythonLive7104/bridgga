@@ -240,3 +240,69 @@ export interface MarketRecommendation {
   created_at: string;
   updated_at: string;
 }
+
+export interface ProspectContact {
+  id: string;
+  name: string;
+  job_title: string;
+  email: string;
+  email_status: string;
+  contactable: boolean;
+}
+
+export interface ProspectSignal {
+  id: string;
+  event_type: string;
+  title: string;
+  occurred_at: string | null;
+  url: string;
+  source: string;
+  confidence: string;
+}
+
+export interface ProspectLead {
+  id: string;
+  status: string;
+  score: number;
+  owner: string | null;
+  last_activity_at: string | null;
+}
+
+/** One row of the prospect table (PRD section 117). */
+export interface Prospect {
+  id: string;
+  name: string;
+  domain: string;
+  website: string;
+  country: string;
+  city: string;
+  industry: string;
+  employee_range: string;
+  description: string;
+  status: string;
+  source: string;
+  last_verified_at: string | null;
+  is_stale: boolean;
+  contact: ProspectContact | null;
+  signals: ProspectSignal[];
+  lead: ProspectLead | null;
+}
+
+export interface ProspectFacets {
+  countries: { value: string; count: number }[];
+  industries: { value: string; count: number }[];
+  employee_ranges: { value: string; count: number }[];
+  search_backend: string;
+}
+
+export interface SavedSearch {
+  id: string;
+  name: string;
+  description: string;
+  filters: Record<string, unknown>;
+  is_shared: boolean;
+  created_by_email: string | null;
+  last_run_at: string | null;
+  last_result_count: number;
+  created_at: string;
+}
