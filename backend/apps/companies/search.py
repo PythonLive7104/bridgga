@@ -62,6 +62,10 @@ class ProspectFilters:
     include_stale_signals: bool = False
     has_contact: bool | None = None
     contactable_only: bool = False
+    #: Minimum opportunity score (PRD section 32). Applies to the company's
+    #: best-scoring lead: the same company can be a lead under two ICPs, and
+    #: a strong fit for one of them is a reason to keep it in the list.
+    min_score: int = 0
     founded_after: int | None = None
     founded_before: int | None = None
     include_disqualified: bool = False
@@ -101,6 +105,7 @@ class ProspectFilters:
             signals=many("signal"),
             signal_within_days=number("signal_within_days") or 0,
             include_stale_signals=bool(flag("include_stale_signals")),
+            min_score=number("min_score") or 0,
             has_contact=flag("has_contact"),
             contactable_only=bool(flag("contactable")),
             founded_after=number("founded_after"),
@@ -154,6 +159,9 @@ def search_companies(
         queryset = queryset.filter(founded_year__gte=filters.founded_after)
     if filters.founded_before:
         queryset = queryset.filter(founded_year__lte=filters.founded_before)
+
+    if filters.min_score:
+        queryset = queryset.filter(leads__score__gte=filters.min_score).distinct()
 
     if filters.has_contact is True:
         queryset = queryset.filter(people__isnull=False).distinct()

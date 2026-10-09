@@ -258,6 +258,10 @@ export interface SignalEvidence {
   quote: string;
   retrieved_at: string | null;
   confidence: string;
+  /** Present on score evidence; empty when the evidence is not from a signal. */
+  signal_type?: string;
+  strength?: number | null;
+  icp_pain?: string;
 }
 
 /** The compact form shown on a prospect row. */
@@ -312,8 +316,69 @@ export interface ProspectLead {
   id: string;
   status: string;
   score: number;
+  /** Named by the server so the label and the badge colour cannot disagree. */
+  band: string;
+  /** How much of the weighting could actually be assessed (PRD section 119). */
+  confidence: number | null;
+  scored_at: string | null;
   owner: string | null;
   last_activity_at: string | null;
+}
+
+/** One of the section 32 components, as judged for one prospect. */
+export interface ScoreComponentResult {
+  component: string;
+  label: string;
+  weight: number;
+  /** What it counted for once unassessable components were dropped. */
+  effective_weight: number;
+  value: number | null;
+  points: number | null;
+  available: boolean;
+  reason: string;
+  evidence: SignalEvidence[];
+  detail: Record<string, unknown>;
+}
+
+/** The section 119 explainability payload for an opportunity score. */
+export interface ScoreExplanation {
+  recommendation: string;
+  band: string;
+  score: number;
+  confidence: number;
+  coverage: number;
+  reason: string;
+  evidence: SignalEvidence[];
+  components: ScoreComponentResult[];
+  not_assessed: { component: string; label: string; reason: string }[];
+  assumptions: {
+    weights: Record<string, number>;
+    icp: { id: string; name: string } | null;
+    selected_markets: string[];
+    company_record_is_stale: boolean;
+    editable_at: Record<string, string>;
+  };
+  scored_at: string;
+  company?: { id: string; name: string };
+  lead?: string | null;
+  stored_score?: number | null;
+}
+
+export interface ScoringComponentWeight {
+  component: string;
+  label: string;
+  weight: number;
+  default: number;
+}
+
+export interface ScoringProfile {
+  id: string;
+  weights: Record<string, number>;
+  components: ScoringComponentWeight[];
+  is_customised: boolean;
+  notes: string;
+  updated_by_email: string | null;
+  updated_at: string;
 }
 
 /** One row of the prospect table (PRD section 117). */

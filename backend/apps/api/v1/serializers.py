@@ -28,7 +28,8 @@ from apps.intelligence.models import (
     MarketRecommendation,
     WebsiteSnapshot,
 )
-from apps.leads.models import ImportJob
+from apps.leads.models import ImportJob, ScoringProfile
+from apps.leads.scoring_models import DEFAULT_WEIGHTS, ScoreComponent, merge_weights
 from apps.organizations.models import Invitation, Membership, Organization, Workspace
 from apps.organizations.roles import Role, capabilities_for
 
@@ -559,6 +560,63 @@ class ImportMappingSerializer(serializers.Serializer):
         return mapping
 
 
+class ScoringProfileSerializer(serializers.ModelSerializer):
+    """The section 32 weighting, as a plain mapping.
+
+    Weights are not required to add up to anything. A customer who sets every
+    component to 10 means "weigh these equally", and the engine normalises by
+    whatever they total -- so validating a sum to 100 would reject a sensible
+    intent and tell them nothing useful.
+    """
+
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    weights = serializers.DictField(child=serializers.IntegerField(min_value=0, max_value=100))
+    components = serializers.SerializerMethodField()
+    is_customised = serializers.BooleanField(read_only=True)
+    updated_by_email = serializers.CharField(source="updated_by.email", read_only=True)
+
+    class Meta:
+        model = ScoringProfile
+        fields = [
+            "id",
+            "weights",
+            "components",
+            "is_customised",
+            "notes",
+            "updated_by_email",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "components", "is_customised", "updated_by_email", "updated_at"]
+
+    @extend_schema_field({"type": "array", "items": {"type": "object"}})
+    def get_components(self, obj: ScoringProfile) -> list[dict]:
+        """The vocabulary, so a client can build the form without hardcoding it."""
+        weights = obj.resolved_weights()
+        return [
+            {
+                "component": value,
+                "label": str(label),
+                "weight": weights.get(value, 0),
+                "default": DEFAULT_WEIGHTS.get(value, 0),
+            }
+            for value, label in ScoreComponent.choices
+        ]
+
+    def validate_weights(self, value: dict) -> dict:
+        unknown = sorted(set(value) - set(ScoreComponent.values))
+        if unknown:
+            raise serializers.ValidationError(f"Unknown scoring components: {', '.join(unknown)}.")
+        if not any(value.values()):
+            raise serializers.ValidationError(
+                "At least one component must carry some weight, or the score has no meaning."
+            )
+        # Merged rather than replaced, so omitting a component leaves it at
+        # its current weight instead of silently zeroing it.
+        return merge_weights(
+            {**self.instance.resolved_weights(), **value} if self.instance else value
+        )
+
+
 class ProspectContactSerializer(serializers.ModelSerializer):
     """The one contact a prospect row shows (PRD section 117, "contact")."""
 
@@ -752,6 +810,9 @@ class ProspectSerializer(serializers.ModelSerializer):
                 "id": {"type": "string"},
                 "status": {"type": "string"},
                 "score": {"type": "integer"},
+                "band": {"type": "string"},
+                "confidence": {"type": "integer"},
+                "scored_at": {"type": "string", "nullable": True},
                 "owner": {"type": "string", "nullable": True},
                 "last_activity_at": {"type": "string", "nullable": True},
             },
@@ -762,10 +823,18 @@ class ProspectSerializer(serializers.ModelSerializer):
         if not leads:
             return None
         lead = leads[0]
+        breakdown = lead.score_breakdown or {}
         return {
             "id": str(lead.public_id),
             "status": lead.status,
             "score": lead.score,
+            # The band and confidence come from the stored breakdown rather
+            # than being recomputed here: the server names the band so the
+            # label and the badge colour cannot disagree, and a score of 82
+            # from three components is a different claim from 82 from eight.
+            "band": breakdown.get("band", ""),
+            "confidence": breakdown.get("confidence"),
+            "scored_at": lead.scored_at,
             "owner": lead.owner.get_full_name() if lead.owner else None,
             "last_activity_at": lead.last_activity_at,
         }

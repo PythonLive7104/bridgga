@@ -40,3 +40,48 @@ def run_import_job(self, job_id: int) -> str | None:
 
     run_import(job=job)
     return str(job.public_id)
+
+
+@shared_task(name="apps.leads.tasks.score_company_leads", bind=True, max_retries=1)
+def score_company_leads(self, company_id: int) -> int:
+    """Rescore every lead for one company.
+
+    Queued after signal detection, because a score that does not move when its
+    evidence moves is worse than no score: it looks current and is not. The
+    same company can be a lead under two ICPs, so this scores all of them.
+    """
+    from apps.leads.models import Lead
+    from apps.leads.scoring import score_lead
+
+    with unscoped():
+        leads = list(
+            Lead.all_objects.select_related("company", "icp", "organization").filter(
+                company_id=company_id
+            )
+        )
+
+    for lead in leads:
+        score_lead(lead)
+    return len(leads)
+
+
+@shared_task(name="apps.leads.tasks.score_organization_leads", bind=True, max_retries=1)
+def score_organization_leads(self, organization_id: int, limit: int = 1_000) -> int:
+    """Rescore an organization's leads after a weighting change.
+
+    One task rather than a fan-out: scoring is pure database reads, so the
+    per-lead overhead of a message would cost more than the work itself.
+    """
+    from apps.leads.scoring import score_organization_leads as rescore
+    from apps.organizations.models import Organization
+
+    with unscoped():
+        organization = Organization.objects.filter(pk=organization_id).first()
+
+    if organization is None:
+        logger.warning("scoring_task_unknown_organization", organization_id=organization_id)
+        return 0
+
+    count = rescore(organization=organization, limit=limit)
+    logger.info("organization_leads_scored", organization_id=organization_id, leads=count)
+    return count

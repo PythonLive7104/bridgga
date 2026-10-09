@@ -184,14 +184,24 @@ class Lead(TenantOwnedModel):
 
 # Re-exported so the app registry discovers it and callers have one import
 # path. Imports live in their own module because an upload with a mapping, a
-# row-by-row outcome and a file on disk is a different subject to a lead.
+# row-by-row outcome and a file on disk is a different subject to a lead, and
+# the scoring weights because how a score is weighted is configuration rather
+# than a lead.
 from apps.leads.import_models import ImportJob, ImportStatus  # noqa: E402
+from apps.leads.scoring_models import (  # noqa: E402
+    DEFAULT_WEIGHTS,
+    ScoreComponent,
+    ScoringProfile,
+)
 
 __all__ = [
+    "DEFAULT_WEIGHTS",
     "ImportJob",
     "ImportStatus",
     "Lead",
     "LeadSource",
     "LeadStatus",
+    "ScoreComponent",
+    "ScoringProfile",
     "SourceKind",
 ]

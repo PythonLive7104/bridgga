@@ -42,7 +42,18 @@ def detect_company_signals(self: Any, company_id: int) -> int:
         logger.warning("signal_task_unknown_company", company_id=company_id)
         return 0
 
-    return len(run_detectors(company=company))
+    produced = run_detectors(company=company)
+
+    if produced:
+        # New evidence changes the opportunity score (PRD section 32), and a
+        # score that does not move when its evidence moves is worse than no
+        # score at all -- it looks current and is not. Queued rather than
+        # called so a scoring failure cannot lose the signals just detected.
+        from apps.leads.tasks import score_company_leads
+
+        score_company_leads.delay(company.pk)
+
+    return len(produced)
 
 
 @shared_task(

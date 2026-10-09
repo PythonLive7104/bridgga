@@ -64,6 +64,8 @@ urlpatterns = [
         views.CompanyProfileConfirmView.as_view(),
         name="company-profile-confirm",
     ),
+    # A singleton: one scoring weighting per organization (PRD section 32).
+    path("scoring/profile", views.ScoringProfileView.as_view(), name="scoring-profile"),
     path("billing/subscription", views.SubscriptionView.as_view(), name="subscription"),
     path("billing/balance", views.CreditBalanceView.as_view(), name="credit-balance"),
     *router.urls,

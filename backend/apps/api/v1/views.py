@@ -35,10 +35,11 @@ from apps.intelligence.models import (
     ProfileStatus,
     WebsiteSnapshot,
 )
-from apps.leads import importing
+from apps.leads import importing, scoring
 from apps.leads import services as lead_services
 from apps.leads import tasks as tasks_leads
-from apps.leads.models import ImportJob
+from apps.leads.models import ImportJob, ScoringProfile
+from apps.leads.scoring_models import default_weights
 from apps.organizations import services
 from apps.organizations.models import Invitation, Membership, Organization, Workspace
 from apps.organizations.roles import Capability, capabilities_for
@@ -331,6 +332,72 @@ class AuditLogViewSet(TenantReadOnlyViewSet):
     required_capability = Capability.AUDIT_VIEW
     filterset_fields = ["action", "actor_email"]
     search_fields = ["target_label", "actor_email"]
+
+
+class ScoringProfileView(APIView):
+    """The section 32 weighting for this organization.
+
+    A singleton: one weighting per organization, so it sits on its own path
+    rather than under a collection id. Section 32 requires the weights to be
+    configurable, and this is where.
+    """
+
+    permission_classes = [RequireOrganization, HasCapability]
+    required_capability = Capability.PROSPECT_VIEW
+    write_capability = Capability.PROSPECT_MANAGE
+
+    def get_profile(self, request: Request) -> ScoringProfile:
+        with unscoped():
+            profile, _ = ScoringProfile.all_objects.get_or_create(
+                organization=request.organization,
+                defaults={"weights": default_weights()},
+            )
+        return profile
+
+    @extend_schema(responses={200: s.ScoringProfileSerializer})
+    def get(self, request: Request) -> Response:
+        return Response(s.ScoringProfileSerializer(self.get_profile(request)).data)
+
+    @extend_schema(request=s.ScoringProfileSerializer, responses={200: s.ScoringProfileSerializer})
+    def patch(self, request: Request) -> Response:
+        profile = self.get_profile(request)
+        serializer = s.ScoringProfileSerializer(profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(updated_by=request.user)
+
+        record_audit(
+            organization=request.organization,
+            action=AuditAction.SCORING_WEIGHTS_CHANGED,
+            actor=request.user,
+            target=profile,
+            metadata={"weights": profile.resolved_weights()},
+            request=request,
+        )
+
+        # Every stored score was computed under the old weighting, so leaving
+        # them would mean a list sorted by one set of rules and explained by
+        # another.
+        tasks_leads.score_organization_leads.delay(request.organization.pk)
+        return Response(serializer.data)
+
+    @extend_schema(request=None, responses={200: s.ScoringProfileSerializer})
+    def delete(self, request: Request) -> Response:
+        """Restore section 32's initial weighting."""
+        profile = self.get_profile(request)
+        profile.weights = default_weights()
+        profile.updated_by = request.user
+        profile.save(update_fields=["weights", "updated_by", "updated_at"])
+
+        record_audit(
+            organization=request.organization,
+            action=AuditAction.SCORING_WEIGHTS_CHANGED,
+            actor=request.user,
+            target=profile,
+            metadata={"reset": True},
+            request=request,
+        )
+        tasks_leads.score_organization_leads.delay(request.organization.pk)
+        return Response(s.ScoringProfileSerializer(profile).data)
 
 
 class SubscriptionView(APIView):
@@ -926,6 +993,50 @@ class ProspectViewSet(TenantReadOnlyViewSet):
         if not include_stale:
             queryset = queryset.active()
         return Response(s.LeadSignalSerializer(queryset.strongest_first(), many=True).data)
+
+    @extend_schema(responses={200: {"type": "object"}})
+    @action(detail=True, methods=["get"], url_path="score")
+    def score(self, request: Request, **kwargs: Any) -> Response:
+        """The opportunity score with its explanation (PRD sections 32, 119).
+
+        Computed on read rather than served from the stored breakdown. It is
+        pure database reads, and the alternative is showing a stale
+        explanation beside a number the customer just changed the weights
+        for. The stored copy on the lead is what lists and filters sort by;
+        this is the answer to "why".
+        """
+        company = self.get_object()
+        lead = (
+            company.leads.select_related("icp").order_by("-score").first()
+            if hasattr(company, "leads")
+            else None
+        )
+        result = scoring.score_prospect(company, icp=lead.icp if lead else None)
+
+        payload = result.payload()
+        payload["company"] = {"id": str(company.public_id), "name": company.name}
+        payload["lead"] = str(lead.public_id) if lead else None
+        # Stated, because the two can differ: the stored score is what the
+        # table sorted by, and if it is behind, a reader should know rather
+        # than wonder why the number moved when they opened the panel.
+        payload["stored_score"] = lead.score if lead else None
+        return Response(payload)
+
+    @extend_schema(request=None, responses={202: {"type": "object"}})
+    @action(detail=True, methods=["post"], url_path="rescore")
+    def rescore(self, request: Request, **kwargs: Any) -> Response:
+        """Recompute and store this prospect's score now."""
+        company = self.get_object()
+        leads = list(company.leads.select_related("icp", "organization").all())
+        if not leads:
+            raise ValidationError(
+                {"detail": ["This company is not a lead yet, so there is no score to store."]}
+            )
+
+        for lead in leads:
+            scoring.score_lead(lead)
+
+        return Response({"status": "scored", "leads": len(leads)})
 
     @extend_schema(request=None, responses={202: {"type": "object"}})
     @action(detail=True, methods=["post"], url_path="detect-signals")

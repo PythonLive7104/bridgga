@@ -16,9 +16,10 @@ registry, cost ledger), the eval harness, the company-understanding agent
 behind an editable company profile, the ICP builder and the market
 recommendation engine, and the Company/Person/Lead data model with provenance
 and contact-quality statuses, CSV/XLSX lead import, prospect discovery with
-Postgres full-text and trigram search, and the buying-signal engine with its
-six deterministic detectors and one grounded AI interpreter. Next: the
-opportunity score. No campaigns yet.
+Postgres full-text and trigram search, the buying-signal engine with its six
+deterministic detectors and one grounded AI interpreter, and the opportunity
+score with configurable weights and a per-component explanation. Next: the
+research agent. No campaigns yet.
 
 ---
 

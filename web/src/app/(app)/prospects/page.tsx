@@ -1,8 +1,11 @@
 "use client";
 
-import { Bookmark, Mail, MailX, Radar, Search, X } from "lucide-react";
+import { Bookmark, ChevronDown, Mail, MailX, Radar, Search, X } from "lucide-react";
 import * as React from "react";
 
+import { ScorePanel } from "@/components/prospects/score-panel";
+import { WeightsEditor } from "@/components/prospects/weights-editor";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -15,7 +18,7 @@ import {
   type ProspectQuery,
 } from "@/lib/hooks/use-prospects";
 import { useSession } from "@/lib/hooks/use-session";
-import { cn } from "@/lib/utils";
+import { cn, scoreBand } from "@/lib/utils";
 
 /**
  * The prospect table (PRD section 117), over the section 29 filter set.
@@ -91,6 +94,29 @@ function ContactCell({ prospect }: { prospect: Prospect }) {
   );
 }
 
+function ScoreCell({ prospect }: { prospect: Prospect }) {
+  const lead = prospect.lead;
+  if (!lead) return <span className="text-sm text-fg-subtle">&mdash;</span>;
+
+  return (
+    <div className="min-w-0">
+      {/* The number is always present beside the colour, so the cell still
+          reads correctly in monochrome and for colour-blind users
+          (PRD section 112). */}
+      <Badge tone={scoreBand(lead.score)} className="tabular">
+        {lead.score}
+        <span className="opacity-70">/100</span>
+      </Badge>
+      {lead.confidence !== null && lead.confidence !== undefined ? (
+        // Shown on the row, not just in the panel: 82 at 40% confidence and
+        // 82 at 90% are different claims, and sorting by score alone hides
+        // which one you are looking at.
+        <p className="mt-0.5 text-xs text-fg-subtle">{lead.confidence}% confidence</p>
+      ) : null}
+    </div>
+  );
+}
+
 function FilterChips({
   label,
   options,
@@ -141,6 +167,9 @@ export default function ProspectsPage() {
   const { can } = useSession();
   const [text, setText] = React.useState("");
   const [query, setQuery] = React.useState<ProspectQuery>({});
+  // One open explanation at a time. The payload is several times the size of
+  // the row it explains, so fifty of them would be fetched for nothing.
+  const [explaining, setExplaining] = React.useState<string | null>(null);
   const facets = useProspectFacets();
   const { prospects, isLoading, isFetching, data } = useProspects(query);
   const { searches, save } = useSavedSearches();
@@ -256,6 +285,8 @@ export default function ProspectsPage() {
             </Button>
           ) : null}
 
+          <WeightsEditor canManage={canManage} />
+
           {searches.length ? (
             <div className="space-y-1.5 border-t border-border pt-4">
               <p className="text-xs font-medium uppercase tracking-wide text-fg-subtle">
@@ -308,6 +339,9 @@ export default function ProspectsPage() {
                           Company
                         </th>
                         <th scope="col" className="px-4 py-3 font-medium">
+                          Score
+                        </th>
+                        <th scope="col" className="px-4 py-3 font-medium">
                           Contact
                         </th>
                         <th scope="col" className="px-4 py-3 font-medium">
@@ -323,43 +357,73 @@ export default function ProspectsPage() {
                     </thead>
                     <tbody>
                       {prospects.map((prospect) => (
-                        <tr
-                          key={prospect.id}
-                          className="border-b border-border/60 last:border-0 hover:bg-bg-subtle/60"
-                        >
-                          <td className="max-w-xs px-4 py-3">
-                            <p className="truncate font-medium text-fg">
-                              {prospect.name}
-                            </p>
-                            <p className="truncate text-xs text-fg-subtle">
-                              {prospect.industry || prospect.domain}
-                            </p>
-                          </td>
-                          <td className="max-w-xs px-4 py-3">
-                            <ContactCell prospect={prospect} />
-                          </td>
-                          <td className="px-4 py-3 text-sm text-fg-muted">
-                            {[prospect.city, prospect.country]
-                              .filter(Boolean)
-                              .join(", ") || "—"}
-                          </td>
-                          <td className="max-w-sm px-4 py-3">
-                            <SignalCell prospect={prospect} />
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="text-sm text-fg-muted">
-                              {prospect.lead?.status ?? "Not a lead yet"}
-                            </span>
-                            {prospect.is_stale ? (
-                              <p
-                                className="text-xs text-signal-warm"
-                                title="Nothing has re-confirmed this record recently"
-                              >
-                                Stale
+                        <React.Fragment key={prospect.id}>
+                          <tr className="border-b border-border/60 last:border-0 hover:bg-bg-subtle/60">
+                            <td className="max-w-xs px-4 py-3">
+                              <p className="truncate font-medium text-fg">
+                                {prospect.name}
                               </p>
-                            ) : null}
-                          </td>
-                        </tr>
+                              <p className="truncate text-xs text-fg-subtle">
+                                {prospect.industry || prospect.domain}
+                              </p>
+                            </td>
+                            <td className="px-4 py-3">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExplaining((current) =>
+                                    current === prospect.id ? null : prospect.id,
+                                  )
+                                }
+                                aria-expanded={explaining === prospect.id}
+                                className="flex items-center gap-1 text-left"
+                              >
+                                <ScoreCell prospect={prospect} />
+                                <ChevronDown
+                                  aria-hidden
+                                  className={cn(
+                                    "size-3.5 shrink-0 text-fg-subtle transition-transform",
+                                    explaining === prospect.id && "rotate-180",
+                                  )}
+                                />
+                                <span className="sr-only">
+                                  Explain the score for {prospect.name}
+                                </span>
+                              </button>
+                            </td>
+                            <td className="max-w-xs px-4 py-3">
+                              <ContactCell prospect={prospect} />
+                            </td>
+                            <td className="px-4 py-3 text-sm text-fg-muted">
+                              {[prospect.city, prospect.country]
+                                .filter(Boolean)
+                                .join(", ") || "—"}
+                            </td>
+                            <td className="max-w-sm px-4 py-3">
+                              <SignalCell prospect={prospect} />
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="text-sm text-fg-muted">
+                                {prospect.lead?.status ?? "Not a lead yet"}
+                              </span>
+                              {prospect.is_stale ? (
+                                <p
+                                  className="text-xs text-signal-warm"
+                                  title="Nothing has re-confirmed this record recently"
+                                >
+                                  Stale
+                                </p>
+                              ) : null}
+                            </td>
+                          </tr>
+                          {explaining === prospect.id ? (
+                            <tr className="border-b border-border/60 bg-bg-subtle/40">
+                              <td colSpan={6}>
+                                <ScorePanel prospectId={prospect.id} />
+                              </td>
+                            </tr>
+                          ) : null}
+                        </React.Fragment>
                       ))}
                     </tbody>
                   </table>
