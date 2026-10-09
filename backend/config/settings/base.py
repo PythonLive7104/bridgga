@@ -34,6 +34,17 @@ PROCESS_ENVIRON = dict(os.environ)
 
 load_dotenv(BASE_DIR / ".env", override=False)
 
+# One DATABASE_URL, two vantage points: `db` resolves inside the compose
+# network and nowhere else, so the same file that works in Docker fails a
+# `manage.py runserver` with "failed to resolve host 'db'". The names are
+# corrected here, before anything reads them, and only under the dev settings
+# -- quietly redirecting a production database to localhost would be a far
+# worse failure than the one this prevents.
+if os.environ.get("DJANGO_SETTINGS_MODULE", "").endswith(".dev"):
+    from config.compose_hosts import localise_environment
+
+    localise_environment()
+
 
 def env(key: str, default: str | None = None) -> str:
     value = os.environ.get(key, default)
