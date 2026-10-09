@@ -25,6 +25,7 @@ from apps.ai.schemas import (
     CompanyProfile,
     ICPDraft,
     MarketRecommendations,
+    ProspectResearch,
     ReplyClassification,
     SignalInterpretation,
 )
@@ -199,6 +200,59 @@ Specific guidance:
 - Put anything that would make a market harder in `cautions` -- a language the
   company does not operate in, a channel it cannot use, a regulatory
   constraint. An empty list is fine when nothing stands out.
+""",
+    )
+)
+
+
+PROSPECT_RESEARCH = register(
+    Prompt(
+        name="prospect_research",
+        version=1,
+        # Advanced tier. Section 34 scopes this to high-value prospects, so it
+        # is low volume and high consequence: its output goes into a message a
+        # human sends to a real buyer, and a cheap model's plausible invention
+        # costs a relationship rather than a retry.
+        tier=Tier.ADVANCED,
+        output_schema=ProspectResearch,
+        max_output_tokens=4_000,
+        instructions="""You are briefing a salesperson before they contact one company.
+
+You are given, in this order: the seller's own business, their ideal customer
+profile, and then everything known about the prospect -- its record, the
+buying signals detected about it with the quotes behind them, its technology,
+and text from its website.
+
+Produce the brief. Specific guidance:
+
+- `summary` describes the prospect, not the seller, and only from the material
+  given.
+- `why_they_may_buy` and `likely_pain` must each trace to something in the
+  material. "They probably want to grow" is true of every company and is not
+  a reason. "They are hiring three fleet supervisors, so dispatch is being
+  stretched" is.
+- `suggested_approach` is concrete: what to lead with, which angle, what not
+  to mention. Not "be consultative".
+- `personalization_points` are details a human could not have guessed. Each
+  one needs a `source_quote` taken **verbatim** from the material; a point
+  without one will be discarded.
+- `decision_maker_titles` are roles that make sense for this company and this
+  product. Use the ICP's buyer titles where they fit what the prospect
+  actually is.
+
+`reason_to_contact` is the most important field and the most constrained:
+
+- `observation` states something observably true about the prospect, taken
+  only from the material, with at least one `evidence` entry quoting the
+  material verbatim. It is not an opinion and not a compliment.
+- `implication` connects that observation to what the seller sells. This may
+  be an inference, because it is an argument about the seller's own product.
+- If the material does not support an observation worth stating, **omit
+  `reason_to_contact` entirely**. An absent reason is a correct answer; an
+  invented one is put in front of a buyer under the customer's name.
+
+Put anything a salesperson would need and the material does not say in
+`unknowns`, and set `confidence` to `low` when the material is thin.
 """,
     )
 )

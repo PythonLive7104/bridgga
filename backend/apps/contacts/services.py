@@ -20,6 +20,9 @@ from apps.contacts.models import Person
 
 logger = structlog.get_logger(__name__)
 
+#: Fields a later source may *fill in* but never overwrite. First writer
+#: wins, because a provider is not entitled to correct what the customer or an
+#: earlier, better source already recorded.
 ENRICHABLE_FIELDS = (
     "first_name",
     "last_name",
@@ -32,6 +35,16 @@ ENRICHABLE_FIELDS = (
     "city",
     "phone",
 )
+
+#: Handled separately from ENRICHABLE_FIELDS because "first writer wins" does
+#: not work for a boolean: False and "not stated" are the same value, so an
+#: unset flag would block a later source that knows better. It is promoted to
+#: True and never demoted -- the same asymmetry as email status, and for the
+#: same reason. A provider saying "not a decision maker" is not grounds to
+#: discard a judgement somebody here already made.
+PROMOTABLE_FLAGS = ("is_decision_maker",)
+
+_ACCEPTED_FIELDS = frozenset(ENRICHABLE_FIELDS) | frozenset(PROMOTABLE_FLAGS)
 
 
 @transaction.atomic
@@ -51,12 +64,26 @@ def upsert_person(
 
     Returns ``(person, created)``.
 
+    An unrecognised keyword raises rather than being dropped. The permissive
+    version silently discarded anything not on the enrichable list, so a
+    caller passing a real field by a slightly wrong name -- or a real field
+    that had simply never been added to the list -- got no error and no
+    effect, and the gap only surfaced when somebody noticed the data missing
+    much later.
+
     An existing record's ``email_status`` is left alone unless the incoming
     one is *worse*. A provider asserting "verified" must never clear a bounce
     or an unsubscribe: the first is a fact we observed ourselves and they did
     not, and the second is a compliance obligation under section 63 that no
     third party is in a position to lift.
     """
+    unexpected = sorted(set(fields) - _ACCEPTED_FIELDS)
+    if unexpected:
+        raise TypeError(
+            f"upsert_person() got unexpected field(s): {', '.join(unexpected)}. "
+            f"Accepted: {', '.join(sorted(_ACCEPTED_FIELDS))}."
+        )
+
     address = (email or "").strip().lower()
 
     with tenant_context(organization=organization):
@@ -80,7 +107,7 @@ def upsert_person(
                 collected_at=timezone.now(),
                 last_verified_at=timezone.now(),
                 last_seen_at=timezone.now(),
-                **{k: v for k, v in fields.items() if k in ENRICHABLE_FIELDS and v},
+                **{k: v for k, v in fields.items() if k in _ACCEPTED_FIELDS and v},
             )
             return person, True
 
@@ -91,6 +118,11 @@ def upsert_person(
                 continue
             setattr(existing, field, value)
             changed.append(field)
+
+        for flag in PROMOTABLE_FLAGS:
+            if fields.get(flag) and not getattr(existing, flag):
+                setattr(existing, flag, True)
+                changed.append(flag)
 
         if email_status and _is_downgrade(existing.email_status, email_status):
             existing.email_status = email_status
@@ -145,4 +177,4 @@ def mark_verified(*, person: Person, source: str = "") -> Person:
     return person
 
 
-__all__ = ["ENRICHABLE_FIELDS", "mark_verified", "upsert_person"]
+__all__ = ["ENRICHABLE_FIELDS", "PROMOTABLE_FLAGS", "mark_verified", "upsert_person"]

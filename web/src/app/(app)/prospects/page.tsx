@@ -3,6 +3,7 @@
 import { Bookmark, ChevronDown, Mail, MailX, Radar, Search, X } from "lucide-react";
 import * as React from "react";
 
+import { ResearchPanel } from "@/components/prospects/research-panel";
 import { ScorePanel } from "@/components/prospects/score-panel";
 import { WeightsEditor } from "@/components/prospects/weights-editor";
 import { Badge } from "@/components/ui/badge";
@@ -366,6 +367,15 @@ export default function ProspectsPage() {
                               <p className="truncate text-xs text-fg-subtle">
                                 {prospect.industry || prospect.domain}
                               </p>
+                              {prospect.reason?.sentence ? (
+                                // Two lines rather than truncated to one:
+                                // this is the sentence the rep will actually
+                                // use, and a half-shown reason is one nobody
+                                // trusts (PRD section 35).
+                                <p className="mt-1 line-clamp-2 text-xs text-fg-muted">
+                                  {prospect.reason.sentence}
+                                </p>
+                              ) : null}
                             </td>
                             <td className="px-4 py-3">
                               <button
@@ -420,6 +430,12 @@ export default function ProspectsPage() {
                             <tr className="border-b border-border/60 bg-bg-subtle/40">
                               <td colSpan={6}>
                                 <ScorePanel prospectId={prospect.id} />
+                                <div className="border-t border-border p-4">
+                                  <ResearchPanel
+                                    prospectId={prospect.id}
+                                    canManage={canManage}
+                                  />
+                                </div>
                               </td>
                             </tr>
                           ) : null}

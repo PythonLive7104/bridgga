@@ -346,6 +346,12 @@ CELERY_TASK_QUEUES_NAMES = ["default", "crawl", "enrich", "ai", "send", "analyti
 # months ago may have moved, been acquired, or stopped existing.
 DATA_FRESHNESS_DAYS = int(env("DATA_FRESHNESS_DAYS", "90"))
 
+# Opportunity score a lead must reach before the research agent is run over it
+# automatically (PRD section 34, "for high-value prospects"). An advanced-tier
+# model call per company is not something to spend on a whole imported list.
+# A person asking for one prospect by hand is never gated by this.
+RESEARCH_MIN_SCORE = int(env("RESEARCH_MIN_SCORE", "60"))
+
 CELERY_TASK_ROUTES = {
     # Declared before the wildcard below, which would otherwise claim it:
     # Celery returns the first matching pattern, and dicts keep insertion
@@ -353,6 +359,11 @@ CELERY_TASK_ROUTES = {
     # the model call, and running it behind a crawl backlog makes onboarding
     # look broken.
     "apps.intelligence.tasks.analyze_company_website": {"queue": "ai"},
+    # Research makes no outbound requests at all -- everything it reads is
+    # already stored -- so it belongs with the other model calls rather than
+    # behind a crawl backlog.
+    "apps.intelligence.tasks.research_prospect": {"queue": "ai"},
+    "apps.intelligence.tasks.research_top_prospects": {"queue": "ai"},
     "apps.intelligence.tasks.*": {"queue": "crawl"},
     # Same ordering rule as above: the specific signal tasks are declared
     # before the companies wildcard that would otherwise claim them. One

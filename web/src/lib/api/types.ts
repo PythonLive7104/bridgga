@@ -381,6 +381,54 @@ export interface ScoringProfile {
   updated_at: string;
 }
 
+/** The section 35 explanation, as it appears on a prospect row. */
+export interface ProspectReason {
+  sentence: string;
+  confidence: string;
+  evidence_count: number;
+  /** Why no sentence: set when the agent wrote one that failed verification. */
+  rejected: string;
+}
+
+export interface PersonalizationPoint {
+  point: string;
+  why_it_lands: string;
+  source_quote: string;
+}
+
+/** The sales brief for one prospect (PRD section 34). */
+export interface ProspectResearch {
+  id: string;
+  company: string;
+  company_name: string;
+  icp_name: string | null;
+  summary: string;
+  why_they_may_buy: string[];
+  likely_pain: string[];
+  possible_use_case: string;
+  suggested_approach: string;
+  personalization_points: PersonalizationPoint[];
+  decision_maker_titles: string[];
+  reason_sentence: string;
+  reason_observation: string;
+  reason_implication: string;
+  reason_evidence: SignalEvidence[];
+  reason_confidence: string;
+  reason_rejected: string;
+  has_reason: boolean;
+  evidence: SignalEvidence[];
+  unknowns: string[];
+  confidence: string;
+  status: string;
+  research_error: string;
+  prompt_pin: string;
+  researched_at: string | null;
+  score_at_research: number | null;
+  source_signal_count: number;
+  edited_fields: string[];
+  fields_meta: Record<string, { edited: boolean; ai_value: unknown }>;
+}
+
 /** One row of the prospect table (PRD section 117). */
 export interface Prospect {
   id: string;
@@ -399,6 +447,7 @@ export interface Prospect {
   contact: ProspectContact | null;
   signals: ProspectSignal[];
   lead: ProspectLead | null;
+  reason: ProspectReason | null;
 }
 
 export interface ProspectFacets {

@@ -27,12 +27,13 @@ from apps.common.viewsets import TenantReadOnlyViewSet, TenantScopedViewSet
 from apps.companies import search, signal_engine
 from apps.companies import tasks as company_tasks
 from apps.companies.models import Company, LeadSignal, SavedSearch
-from apps.intelligence import agents, icp_agents, market_agents, tasks
+from apps.intelligence import agents, icp_agents, market_agents, research_agents, tasks
 from apps.intelligence.models import (
     ICP,
     CountryProfile,
     MarketRecommendation,
     ProfileStatus,
+    ProspectResearch,
     WebsiteSnapshot,
 )
 from apps.leads import importing, scoring
@@ -950,6 +951,11 @@ class ProspectViewSet(TenantReadOnlyViewSet):
             ),
             Prefetch("signals", queryset=live_signals, to_attr="active_signals"),
             Prefetch(
+                "research",
+                queryset=ProspectResearch.all_objects.order_by("-researched_at", "-id"),
+                to_attr="prefetched_research",
+            ),
+            Prefetch(
                 "leads",
                 queryset=Lead.all_objects.select_related("owner").order_by("-score"),
                 to_attr="prefetched_leads",
@@ -1049,6 +1055,64 @@ class ProspectViewSet(TenantReadOnlyViewSet):
         company = self.get_object()
         company_tasks.refresh_company_signals.delay(company.pk)
         return Response({"status": "queued"}, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        request=None,
+        responses={200: s.ProspectResearchSerializer, 202: s.ProspectResearchSerializer},
+    )
+    @action(detail=True, methods=["get", "post", "patch"], url_path="research")
+    def research(self, request: Request, **kwargs: Any) -> Response:
+        """The sales brief for one prospect (PRD sections 34, 35).
+
+        GET reads it, POST queues a fresh run, PATCH records a human's
+        corrections. One route because they are three verbs on one resource,
+        and a brief that lived at three paths would be three things to keep in
+        step.
+        """
+        company = self.get_object()
+        existing = list(company.research.select_related("icp").order_by("-researched_at"))
+
+        if request.method == "GET":
+            if not existing:
+                return Response(
+                    {"detail": "This prospect has not been researched yet."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            return Response(s.ProspectResearchSerializer(existing[0]).data)
+
+        if request.method == "PATCH":
+            if not existing:
+                raise ValidationError({"detail": ["There is no brief to edit yet."]})
+            brief = existing[0]
+            changed = research_agents.apply_edits(research=brief, data=request.data)
+            brief.refresh_from_db()
+            return Response({**s.ProspectResearchSerializer(brief).data, "changed_fields": changed})
+
+        # POST: queued, because this is an advanced-tier model call over a
+        # large context and far longer than a request should be held open.
+        tasks.research_prospect.delay(
+            company.pk,
+            existing[0].icp_id if existing else None,
+            request.user.pk,
+        )
+        return Response({"status": "queued"}, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(request=s.ResearchResetSerializer, responses={200: s.ProspectResearchSerializer})
+    @action(detail=True, methods=["post"], url_path="research/reset")
+    def research_reset(self, request: Request, **kwargs: Any) -> Response:
+        """Drop a human's edits and restore what the agent wrote."""
+        company = self.get_object()
+        brief = company.research.order_by("-researched_at").first()
+        if brief is None:
+            raise ValidationError({"detail": ["There is no brief to reset."]})
+
+        serializer = s.ResearchResetSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        restored = research_agents.reset_fields(
+            research=brief, fields=serializer.validated_data["fields"]
+        )
+        brief.refresh_from_db()
+        return Response({**s.ProspectResearchSerializer(brief).data, "restored_fields": restored})
 
     @extend_schema(responses={200: {"type": "object"}})
     @action(detail=False, methods=["get"], url_path="facets")

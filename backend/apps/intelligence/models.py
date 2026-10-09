@@ -218,6 +218,10 @@ from apps.intelligence.country_models import (  # noqa: E402
     MarketRecommendation,
 )
 from apps.intelligence.icp_models import ICP, ICPStatus  # noqa: E402
+from apps.intelligence.research_models import (  # noqa: E402
+    ProspectResearch,
+    ResearchStatus,
+)
 
 __all__ = [
     "ICP",
@@ -228,6 +232,8 @@ __all__ = [
     "MarketFit",
     "MarketRecommendation",
     "ProfileStatus",
+    "ProspectResearch",
+    "ResearchStatus",
     "SnapshotStatus",
     "WebsiteSnapshot",
 ]

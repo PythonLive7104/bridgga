@@ -26,6 +26,7 @@ from apps.intelligence.models import (
     CompanyProfile,
     CountryProfile,
     MarketRecommendation,
+    ProspectResearch,
     WebsiteSnapshot,
 )
 from apps.leads.models import ImportJob, ScoringProfile
@@ -560,6 +561,99 @@ class ImportMappingSerializer(serializers.Serializer):
         return mapping
 
 
+class ProspectResearchSerializer(serializers.ModelSerializer):
+    """The sales brief (PRD section 34) and the section 35 explanation.
+
+    ``reason_sentence`` is composed on the server from the two stored halves.
+    The client is given the sentence *and* the halves: the sentence to show,
+    the halves because the observation is the part that carries evidence and
+    the part a rep may legitimately reword.
+
+    ``reason_rejected`` is exposed on purpose. "Nothing to say yet" and "the
+    agent wrote something we could not verify and discarded it" are different
+    situations, and a reader who cannot tell them apart will assume the first.
+    """
+
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    company = serializers.UUIDField(source="company.public_id", read_only=True)
+    company_name = serializers.CharField(source="company.name", read_only=True)
+    icp_name = serializers.CharField(source="icp.name", read_only=True, default=None)
+    reason_sentence = serializers.CharField(read_only=True)
+    has_reason = serializers.BooleanField(read_only=True)
+    fields_meta = serializers.SerializerMethodField()
+    source_signal_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProspectResearch
+        fields = [
+            "id",
+            "company",
+            "company_name",
+            "icp_name",
+            "summary",
+            "why_they_may_buy",
+            "likely_pain",
+            "possible_use_case",
+            "suggested_approach",
+            "personalization_points",
+            "decision_maker_titles",
+            "reason_sentence",
+            "reason_observation",
+            "reason_implication",
+            "reason_evidence",
+            "reason_confidence",
+            "reason_rejected",
+            "has_reason",
+            "evidence",
+            "unknowns",
+            "confidence",
+            "status",
+            "research_error",
+            "prompt_pin",
+            "researched_at",
+            "score_at_research",
+            "source_signal_count",
+            "edited_fields",
+            "fields_meta",
+        ]
+        read_only_fields = [
+            "id",
+            "company",
+            "company_name",
+            "icp_name",
+            "reason_sentence",
+            "reason_evidence",
+            "reason_confidence",
+            "reason_rejected",
+            "has_reason",
+            "evidence",
+            "unknowns",
+            "confidence",
+            "status",
+            "research_error",
+            "prompt_pin",
+            "researched_at",
+            "score_at_research",
+            "source_signal_count",
+            "edited_fields",
+            "fields_meta",
+        ]
+
+    @extend_schema_field({"type": "object"})
+    def get_fields_meta(self, obj: ProspectResearch) -> dict:
+        return obj.fields_meta()
+
+    def get_source_signal_count(self, obj: ProspectResearch) -> int:
+        return obj.source_signals.count()
+
+
+class ResearchResetSerializer(serializers.Serializer):
+    fields = serializers.ListField(
+        child=serializers.ChoiceField(choices=ProspectResearch.AI_FIELDS),
+        allow_empty=False,
+    )
+
+
 class ScoringProfileSerializer(serializers.ModelSerializer):
     """The section 32 weighting, as a plain mapping.
 
@@ -760,6 +854,7 @@ class ProspectSerializer(serializers.ModelSerializer):
     contact = serializers.SerializerMethodField()
     signals = serializers.SerializerMethodField()
     lead = serializers.SerializerMethodField()
+    reason = serializers.SerializerMethodField()
     is_stale = serializers.BooleanField(read_only=True)
 
     class Meta:
@@ -781,6 +876,7 @@ class ProspectSerializer(serializers.ModelSerializer):
             "contact",
             "signals",
             "lead",
+            "reason",
         ]
         read_only_fields = fields
 
@@ -818,6 +914,41 @@ class ProspectSerializer(serializers.ModelSerializer):
             },
         }
     )
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "sentence": {"type": "string"},
+                "confidence": {"type": "string"},
+                "evidence_count": {"type": "integer"},
+                "rejected": {"type": "string"},
+            },
+        }
+    )
+    def get_reason(self, obj: Company) -> dict | None:
+        """The section 35 explanation, where one has been verified."""
+        research = getattr(obj, "prefetched_research", None)
+        if not research:
+            return None
+        brief = research[0]
+        if not brief.has_reason:
+            # Still returned, carrying why. A row that silently shows nothing
+            # looks identical whether the agent has not run, found nothing
+            # worth saying, or wrote something that failed verification.
+            return {
+                "sentence": "",
+                "confidence": "",
+                "evidence_count": 0,
+                "rejected": brief.reason_rejected,
+            }
+        return {
+            "sentence": brief.reason_sentence,
+            "confidence": brief.reason_confidence,
+            "evidence_count": len(brief.reason_evidence or []),
+            "rejected": "",
+        }
+
     def get_lead(self, obj: Company) -> dict | None:
         leads = getattr(obj, "prefetched_leads", None)
         if not leads:

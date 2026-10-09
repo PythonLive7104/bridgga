@@ -11,6 +11,7 @@ import { apiFetch, type Paginated } from "@/lib/api/client";
 import type {
   Prospect,
   ProspectFacets,
+  ProspectResearch,
   SavedSearch,
   ScoreExplanation,
   ScoringProfile,
@@ -143,4 +144,51 @@ export function useScoringProfile() {
   });
 
   return { ...query, profile: query.data, update, reset };
+}
+
+/**
+ * The sales brief for one prospect (PRD sections 34, 35).
+ *
+ * `retry: false` because a 404 here is the normal state, not a failure: most
+ * prospects have not been researched, and retrying would turn "nothing yet"
+ * into three requests and a spinner.
+ */
+export function useProspectResearch(prospectId: string | null) {
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
+    queryKey: [...PROSPECTS_QUERY_KEY, "research", prospectId],
+    queryFn: () => apiFetch<ProspectResearch>(`/api/v1/prospects/${prospectId}/research`),
+    enabled: Boolean(prospectId),
+    retry: false,
+  });
+
+  const invalidate = () => {
+    void queryClient.invalidateQueries({
+      queryKey: [...PROSPECTS_QUERY_KEY, "research", prospectId],
+    });
+    // The reason-to-contact is on the row too.
+    void queryClient.invalidateQueries({ queryKey: PROSPECTS_QUERY_KEY });
+  };
+
+  const request = useMutation({
+    mutationFn: () =>
+      apiFetch<{ status: string }>(`/api/v1/prospects/${prospectId}/research`, {
+        method: "POST",
+      }),
+    // Queued server-side, so there is nothing to show yet; the panel polls on
+    // the next open rather than pretending to stream.
+    onSuccess: invalidate,
+  });
+
+  const edit = useMutation({
+    mutationFn: (data: Partial<ProspectResearch>) =>
+      apiFetch<ProspectResearch>(`/api/v1/prospects/${prospectId}/research`, {
+        method: "PATCH",
+        body: data,
+      }),
+    onSuccess: invalidate,
+  });
+
+  return { ...query, research: query.data, request, edit };
 }

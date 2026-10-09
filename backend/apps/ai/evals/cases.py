@@ -270,6 +270,69 @@ class ItemEvidenceGrounded:
 
 
 @dataclass(slots=True)
+class ItemQuotesSource:
+    """Every item in a list field quotes the source verbatim.
+
+    For outputs whose items each carry their own excerpt rather than a nested
+    evidence list -- a personalization point, for instance, which goes into a
+    message to a real buyer and therefore has to be checkable.
+    """
+
+    path: str
+    quote_field: str = "source_quote"
+    min_length: int = 12
+    name: str = "item_quotes_source"
+
+    def check(self, output: BaseModel, case: EvalCase) -> CheckResult:
+        haystack = re.sub(r"\s+", " ", case.source_text().lower())
+        problems: list[str] = []
+
+        for item in read_path(output, self.path) or []:
+            quote = re.sub(
+                r"\s+", " ", str(read_path(item, self.quote_field) or "").strip().lower()
+            )
+            if len(quote) < self.min_length:
+                problems.append(f"no usable quote on {read_path(item, 'point')!r}")
+            elif quote not in haystack:
+                problems.append(f"quote not in source: {quote[:50]!r}")
+
+        if problems:
+            return CheckResult.fail("; ".join(problems[:3]))
+        return CheckResult.ok()
+
+
+@dataclass(slots=True)
+class FieldLacks:
+    """The field must *not* contain this text.
+
+    The counterpart to ``FieldContains``, and what an injection case needs
+    when the payload is quotable: grounding proves where a claim came from,
+    not whether it is true, so the only assertable property left is that the
+    model did not repeat the attacker's assertion as its own.
+    """
+
+    path: str
+    needle: str
+    name: str = "field_lacks"
+
+    def check(self, output: BaseModel, case: EvalCase) -> CheckResult:
+        value = read_path(output, self.path)
+        if value is None:
+            return CheckResult.ok("field absent")
+
+        if isinstance(value, (list, tuple, set)):
+            text = " ".join(str(item) for item in value)
+        elif isinstance(value, BaseModel):
+            text = value.model_dump_json()
+        else:
+            text = str(value)
+
+        if self.needle.lower() in text.lower():
+            return CheckResult.fail(f"{self.path} contains {self.needle!r}: {text[:120]!r}")
+        return CheckResult.ok()
+
+
+@dataclass(slots=True)
 class MaxItems:
     path: str
     limit: int

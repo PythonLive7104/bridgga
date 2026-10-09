@@ -247,6 +247,77 @@ def test_the_same_address_in_different_case_is_one_person(organization: Any) -> 
     assert Person.objects.filter(organization=organization).count() == 1
 
 
+def test_an_unrecognised_field_is_refused_rather_than_dropped(organization: Any) -> None:
+    """Found by a test that set `is_decision_maker` and watched it vanish.
+
+    The permissive version swallowed anything not on the enrichable list, so
+    a caller passing a real model field by a slightly wrong name -- or one
+    that had simply never been added to the list -- got no error and no
+    effect. The gap surfaces much later, as data that is quietly missing.
+    """
+    company = make_company(organization)
+
+    with pytest.raises(TypeError, match="unexpected field"):
+        contact_services.upsert_person(
+            organization=organization,
+            company=company,
+            email="ada@acme.com",
+            source="crawl",
+            job_tittle="Operations Director",
+        )
+
+
+def test_a_decision_maker_can_be_promoted_but_never_demoted(organization: Any) -> None:
+    """A boolean cannot follow "first writer wins".
+
+    False and "not stated" are the same value, so the enrichment rule used for
+    text fields would let an unset flag block every later source. It is
+    promoted to True and then held: a provider claiming somebody is *not* a
+    decision maker is not grounds to discard a judgement made here, which is
+    the same asymmetry email status uses.
+    """
+    company = make_company(organization)
+    person, _ = contact_services.upsert_person(
+        organization=organization, company=company, email="ada@acme.com", source="crawl"
+    )
+    assert person.is_decision_maker is False
+
+    contact_services.upsert_person(
+        organization=organization,
+        company=company,
+        email="ada@acme.com",
+        source="provider:acme",
+        is_decision_maker=True,
+    )
+    person.refresh_from_db()
+    assert person.is_decision_maker is True
+
+    contact_services.upsert_person(
+        organization=organization,
+        company=company,
+        email="ada@acme.com",
+        source="provider:other",
+        is_decision_maker=False,
+    )
+    person.refresh_from_db()
+    assert person.is_decision_maker is True
+
+
+def test_a_decision_maker_flag_is_kept_on_creation(organization: Any) -> None:
+    company = make_company(organization)
+    person, created = contact_services.upsert_person(
+        organization=organization,
+        company=company,
+        email="ceo@acme.com",
+        source="crawl",
+        job_title="Chief Executive",
+        is_decision_maker=True,
+    )
+
+    assert created is True
+    assert person.is_decision_maker is True
+
+
 def test_a_vendor_cannot_clear_a_bounce(organization: Any) -> None:
     """The bounce is something we observed; the vendor's claim is not evidence."""
     company = make_company(organization)

@@ -17,9 +17,10 @@ behind an editable company profile, the ICP builder and the market
 recommendation engine, and the Company/Person/Lead data model with provenance
 and contact-quality statuses, CSV/XLSX lead import, prospect discovery with
 Postgres full-text and trigram search, the buying-signal engine with its six
-deterministic detectors and one grounded AI interpreter, and the opportunity
-score with configurable weights and a per-component explanation. Next: the
-research agent. No campaigns yet.
+deterministic detectors and one grounded AI interpreter, the opportunity score
+with configurable weights and a per-component explanation, and the research
+agent with the evidence-verified reason-to-contact. Next: the website sales
+audit. No campaigns yet.
 
 ---
 

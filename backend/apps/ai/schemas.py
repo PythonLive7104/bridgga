@@ -259,6 +259,107 @@ class MarketRecommendations(StrictModel):
     confidence: Confidence = Confidence.MEDIUM
 
 
+class PersonalizationPoint(StrictModel):
+    """One specific thing to mention, and the quote that justifies it.
+
+    ``source_quote`` is required for the same reason the reason-to-contact
+    carries evidence: these go straight into a message to a real buyer, and a
+    detail nobody can check is a detail that can be wrong in front of them.
+    """
+
+    point: str = Field(max_length=300, description="The specific thing to reference.")
+    why_it_lands: str = Field(default="", max_length=300)
+    source_quote: str = Field(
+        default="",
+        max_length=400,
+        description="Verbatim text from the supplied material that supports this point.",
+    )
+
+
+class ReasonToContact(StrictModel):
+    """PRD section 35, as a structure rather than a sentence.
+
+    Section 35 requires a concise explanation and then one constraint: "The
+    explanation must be evidence-based." A single free-text field cannot carry
+    that constraint -- a model asked for one sentence writes a fluent sentence,
+    and fluency is indistinguishable from grounding once it is a string.
+
+    Split in two, it can be enforced. ``observation`` is a claim of fact about
+    the company and must be supported by ``evidence`` quoted from the supplied
+    material, which the agent verifies in code. ``implication`` is the seller's
+    argument, which is allowed to be an inference because it is about the
+    seller's own product. The rendered sentence is the two joined, which is
+    exactly the shape of section 35's own worked example.
+    """
+
+    observation: str = Field(
+        max_length=300,
+        description=(
+            "What is observably true about this company, taken only from the "
+            "supplied material. e.g. 'recently expanded into Ghana and is hiring "
+            "regional sales staff'."
+        ),
+    )
+    implication: str = Field(
+        max_length=300,
+        description=(
+            "Why that means they may need what this customer sells. e.g. 'your "
+            "sales automation product could help them manage the growing "
+            "outbound team'."
+        ),
+    )
+    evidence: list[Evidence] = Field(
+        default_factory=list,
+        max_length=4,
+        description="Quotes from the supplied material supporting the observation.",
+    )
+    confidence: Confidence = Confidence.MEDIUM
+
+
+class ProspectResearch(StrictModel):
+    """What to know before contacting one company (PRD section 34)."""
+
+    summary: str = Field(
+        default="",
+        max_length=1_500,
+        description="What this company does and where it is, in a few sentences.",
+    )
+    why_they_may_buy: list[str] = Field(
+        default_factory=list,
+        max_length=6,
+        description="Specific reasons this company might need what the customer sells.",
+    )
+    likely_pain: list[str] = Field(default_factory=list, max_length=6)
+    possible_use_case: str = Field(
+        default="",
+        max_length=600,
+        description="How this company would concretely use the customer's product.",
+    )
+    suggested_approach: str = Field(
+        default="",
+        max_length=800,
+        description="How to open the conversation: angle, channel, what to lead with.",
+    )
+    personalization_points: list[PersonalizationPoint] = Field(default_factory=list, max_length=6)
+    decision_maker_titles: list[str] = Field(
+        default_factory=list,
+        max_length=8,
+        description="Roles worth reaching at this company, given what it does.",
+    )
+
+    reason_to_contact: ReasonToContact | None = Field(
+        default=None, description="The section 35 explanation. Omit rather than invent."
+    )
+
+    confidence: Confidence = Confidence.MEDIUM
+    evidence: list[Evidence] = Field(default_factory=list, max_length=12)
+    unknowns: list[str] = Field(
+        default_factory=list,
+        max_length=8,
+        description="What a salesperson would need that the material does not say.",
+    )
+
+
 class ReplyCategory(StrEnum):
     """The twelve labels in PRD section 42."""
 

@@ -4,7 +4,10 @@ Importing this package registers the dataset, so ``all_cases()`` is populated
 regardless of which module the caller reaches for first.
 """
 
-from apps.ai.evals import dataset  # noqa: F401  (import for registration side effect)
+from apps.ai.evals import (
+    dataset,  # noqa: F401  (import for registration side effect)
+    research_cases,  # noqa: F401  (same, for section 34 and 35)
+)
 from apps.ai.evals.cases import EvalCase, all_cases, register_case
 from apps.ai.evals.runner import EvalReport, format_report, run_case, run_evals
 
