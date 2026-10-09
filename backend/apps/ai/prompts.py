@@ -21,7 +21,12 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 
 from apps.ai.pricing import Tier
-from apps.ai.schemas import CompanyProfile, ICPDraft, ReplyClassification
+from apps.ai.schemas import (
+    CompanyProfile,
+    ICPDraft,
+    MarketRecommendations,
+    ReplyClassification,
+)
 
 # Prepended to every prompt. Separate constant so a change to the standing
 # rules is one edit and shows up in every prompt's rendered text.
@@ -159,6 +164,40 @@ Specific guidance:
   could, not every market that exists.
 - `rationale` explains in two or three sentences why this profile follows from
   the company profile.
+""",
+    )
+)
+
+
+MARKET_RECOMMENDATION = register(
+    Prompt(
+        name="market_recommendation",
+        version=1,
+        tier=Tier.ADVANCED,
+        output_schema=MarketRecommendations,
+        instructions="""\
+Given a company, its ideal customer profile, and a list of countries with their
+facts, judge how good a market each country is for this company.
+
+Weigh the factors in this order, and say which ones decided it:
+product fit, company density, industry density, estimated demand, competition,
+communication availability, regulatory constraints, language, purchasing power.
+
+Specific guidance:
+- Use only the countries supplied, and refer to each by the exact code given.
+  Do not add a country that is not on the list.
+- The country facts given are authoritative. Do not contradict them and do not
+  supplement them from your own knowledge: if a currency, language or channel
+  is not stated, do not assert one.
+- `recommended_channels` must come from that country's own listed channels.
+- `reasoning` is the point of the exercise. Two or three sentences naming the
+  specific things about *this* company that make the market good or poor. "It
+  is a large economy" is true of many countries and explains nothing.
+- Rank honestly, including low fits. A list where every market is a high fit is
+  not a recommendation, it is a list of countries.
+- Put anything that would make a market harder in `cautions` -- a language the
+  company does not operate in, a channel it cannot use, a regulatory
+  constraint. An empty list is fine when nothing stands out.
 """,
     )
 )

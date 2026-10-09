@@ -203,3 +203,40 @@ export type ICPField =
   | "responsibilities"
   | "pain_signals"
   | "rationale";
+
+export interface CountryProfile {
+  id: string;
+  code: string;
+  name: string;
+  region: string;
+  currency: string;
+  languages: string[];
+  timezones: string[];
+  major_industries: string[];
+  business_hubs: string[];
+  channels: string[];
+  communication_notes: string;
+  data_protection_law: string;
+  regulatory_notes: string;
+  is_launch_market: boolean;
+}
+
+export type MarketFit = "high" | "medium_high" | "medium" | "low";
+
+export interface MarketRecommendation {
+  id: string;
+  country: CountryProfile;
+  fit: MarketFit;
+  fit_label: string;
+  score: number;
+  rank: number;
+  reasoning: string;
+  /** Short verdict per PRD section 28 factor. */
+  factors: Record<string, string>;
+  recommended_channels: string[];
+  cautions: string[];
+  is_selected: boolean;
+  prompt_pin: string;
+  created_at: string;
+  updated_at: string;
+}

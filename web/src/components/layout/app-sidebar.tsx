@@ -6,6 +6,7 @@ import {
   Building2,
   CalendarCheck,
   CreditCard,
+  Globe2,
   Inbox,
   LayoutDashboard,
   LineChart,
@@ -74,6 +75,7 @@ const NAV: NavGroup[] = [
       },
       { href: "/signals", label: "Signals", icon: Radar, capability: "prospect.view" },
       { href: "/icp", label: "ICP", icon: Sparkles, capability: "prospect.view" },
+      { href: "/markets", label: "Markets", icon: Globe2, capability: "prospect.view" },
     ],
   },
   {

@@ -21,8 +21,14 @@ from apps.billing.models import CreditEntry, Subscription
 from apps.common.permissions import HasCapability, RequireOrganization
 from apps.common.tenancy import unscoped
 from apps.common.viewsets import TenantReadOnlyViewSet, TenantScopedViewSet
-from apps.intelligence import agents, icp_agents, tasks
-from apps.intelligence.models import ICP, ProfileStatus, WebsiteSnapshot
+from apps.intelligence import agents, icp_agents, market_agents, tasks
+from apps.intelligence.models import (
+    ICP,
+    CountryProfile,
+    MarketRecommendation,
+    ProfileStatus,
+    WebsiteSnapshot,
+)
 from apps.organizations import services
 from apps.organizations.models import Invitation, Membership, Organization, Workspace
 from apps.organizations.roles import Capability, capabilities_for
@@ -614,3 +620,94 @@ class ICPViewSet(TenantScopedViewSet):
         )
         icp.refresh_from_db()
         return Response(s.ICPSerializer(icp).data)
+
+
+class CountryProfileViewSet(viewsets.ReadOnlyModelViewSet):
+    """Seeded country intelligence (PRD section 71).
+
+    Platform-wide rather than tenant-scoped: these are facts about a country,
+    not about a customer. Readable by any authenticated user, and writable by
+    nobody through the API -- they are maintained by `manage.py seed_countries`
+    so that every workspace sees the same ones.
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = s.CountryProfileSerializer
+    queryset = CountryProfile.objects.all()
+    lookup_field = "code"
+    lookup_url_kwarg = "code"
+    filterset_fields = ["is_launch_market", "region", "currency"]
+    search_fields = ["name", "code"]
+
+
+class MarketRecommendationViewSet(TenantReadOnlyViewSet):
+    """Which markets to sell into, and why (PRD section 28)."""
+
+    queryset = MarketRecommendation.objects.all()
+    serializer_class = s.MarketRecommendationSerializer
+    required_capability = Capability.PROSPECT_VIEW
+    filterset_fields = ["fit", "is_selected"]
+    ordering_fields = ["rank", "score"]
+
+    def get_base_queryset(self) -> Any:
+        return MarketRecommendation.all_objects.select_related("country")
+
+    @extend_schema(
+        request=s.MarketRecommendRequestSerializer,
+        responses={200: s.MarketRecommendationSerializer(many=True)},
+    )
+    @action(detail=False, methods=["post"], url_path="recommend")
+    def recommend(self, request: Request) -> Response:
+        """Rank the seeded countries for this organization's ICP."""
+        if not request.membership.has_capability(Capability.ICP_MANAGE):
+            self.permission_denied(request, message="Your role cannot generate recommendations.")
+
+        serializer = s.MarketRecommendRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            rows = market_agents.recommend_markets(
+                organization=request.organization,
+                include_international=serializer.validated_data["include_international"],
+                requested_by=request.user,
+            )
+        except market_agents.MarketError as exc:
+            raise ValidationError({"detail": str(exc)}) from exc
+
+        record_audit(
+            organization=request.organization,
+            action=AuditAction.MARKETS_RECOMMENDED,
+            actor=request.user,
+            metadata={"count": len(rows)},
+            request=request,
+        )
+        return Response(s.MarketRecommendationSerializer(rows, many=True).data)
+
+    @extend_schema(
+        request=s.MarketSelectionSerializer,
+        responses={200: s.MarketRecommendationSerializer(many=True)},
+    )
+    @action(detail=False, methods=["post"], url_path="select")
+    def select(self, request: Request) -> Response:
+        """Record which markets the customer will actually work.
+
+        The recommendation is advice; this is the decision, and prospect
+        discovery reads the decision rather than the ranking.
+        """
+        if not request.membership.has_capability(Capability.ICP_MANAGE):
+            self.permission_denied(request, message="Your role cannot choose markets.")
+
+        serializer = s.MarketSelectionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        rows = market_agents.set_selected(
+            organization=request.organization, codes=serializer.validated_data["codes"]
+        )
+        record_audit(
+            organization=request.organization,
+            action=AuditAction.MARKETS_SELECTED,
+            actor=request.user,
+            metadata={"codes": sorted(serializer.validated_data["codes"])},
+            request=request,
+        )
+        return Response(s.MarketRecommendationSerializer(rows, many=True).data)

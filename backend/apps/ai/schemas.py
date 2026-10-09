@@ -172,6 +172,55 @@ class ICPDraft(StrictModel):
     evidence: list[Evidence] = Field(default_factory=list, max_length=20)
 
 
+class MarketFitBand(StrEnum):
+    """The bands PRD section 28 uses in its own worked example."""
+
+    HIGH = "high"
+    MEDIUM_HIGH = "medium_high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class MarketRecommendation(StrictModel):
+    """One country, judged for one company (PRD section 28)."""
+
+    country_code: str = Field(
+        max_length=2, description="ISO 3166-1 alpha-2, from the supplied list only."
+    )
+    fit: MarketFitBand
+    score: int = Field(ge=0, le=100, description="Finer ordering behind the band.")
+    reasoning: str = Field(
+        max_length=800,
+        description="Why this country, for this company. Section 28 requires it.",
+    )
+    # The section 28 factors, scored individually, so a reader can see which
+    # ones carried the judgement instead of only the conclusion.
+    factors: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Short verdict per factor: product_fit, company_density, industry_density, "
+            "estimated_demand, competition, communication, regulatory, language, "
+            "purchasing_power."
+        ),
+    )
+    recommended_channels: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="From the country's own listed channels. Do not invent others.",
+    )
+    cautions: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="What would make this market harder. Empty if nothing stands out.",
+    )
+
+
+class MarketRecommendations(StrictModel):
+    recommendations: list[MarketRecommendation] = Field(default_factory=list, max_length=20)
+    summary: str = Field(default="", max_length=600)
+    confidence: Confidence = Confidence.MEDIUM
+
+
 class ReplyCategory(StrEnum):
     """The twelve labels in PRD section 42."""
 

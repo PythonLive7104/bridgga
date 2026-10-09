@@ -13,8 +13,9 @@ organizations, workspaces, roles, tenancy, audit log, billing models, API
 skeleton, Celery queues, the design system and the marketing site. Phase 2 has
 the SSRF-hardened website fetcher, the AI layer (providers, versioned prompt
 registry, cost ledger), the eval harness, the company-understanding agent
-behind an editable company profile, and the ICP builder. Next: the market
-recommendation engine. No prospects or campaigns yet.
+behind an editable company profile, the ICP builder and the market
+recommendation engine. Next: the company and lead data model. No prospects or
+campaigns yet.
 
 ---
 

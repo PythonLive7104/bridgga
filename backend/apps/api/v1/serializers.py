@@ -16,7 +16,13 @@ from apps.accounts.models import User
 from apps.ai.schemas import SignalType
 from apps.audit.models import AuditLog
 from apps.billing.models import CreditEntry, Plan, Subscription
-from apps.intelligence.models import ICP, CompanyProfile, WebsiteSnapshot
+from apps.intelligence.models import (
+    ICP,
+    CompanyProfile,
+    CountryProfile,
+    MarketRecommendation,
+    WebsiteSnapshot,
+)
 from apps.organizations.models import Invitation, Membership, Organization, Workspace
 from apps.organizations.roles import Role, capabilities_for
 
@@ -401,3 +407,65 @@ class ICPResetSerializer(serializers.Serializer):
         child=serializers.ChoiceField(choices=[(f, f) for f in ICP.AI_FIELDS]),
         allow_empty=False,
     )
+
+
+class CountryProfileSerializer(serializers.ModelSerializer):
+    """Seeded country facts (PRD section 71). Read-only: these are not a tenant's to edit."""
+
+    id = serializers.UUIDField(source="public_id", read_only=True)
+
+    class Meta:
+        model = CountryProfile
+        fields = [
+            "id",
+            "code",
+            "name",
+            "region",
+            "currency",
+            "languages",
+            "timezones",
+            "major_industries",
+            "business_hubs",
+            "channels",
+            "communication_notes",
+            "data_protection_law",
+            "regulatory_notes",
+            "is_launch_market",
+        ]
+        read_only_fields = fields
+
+
+class MarketRecommendationSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    country = CountryProfileSerializer(read_only=True)
+    fit_label = serializers.CharField(source="get_fit_display", read_only=True)
+
+    class Meta:
+        model = MarketRecommendation
+        fields = [
+            "id",
+            "country",
+            "fit",
+            "fit_label",
+            "score",
+            "rank",
+            "reasoning",
+            "factors",
+            "recommended_channels",
+            "cautions",
+            "is_selected",
+            "prompt_pin",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class MarketRecommendRequestSerializer(serializers.Serializer):
+    include_international = serializers.BooleanField(required=False, default=False)
+
+
+class MarketSelectionSerializer(serializers.Serializer):
+    """The markets the customer has actually decided to work."""
+
+    codes = serializers.ListField(child=serializers.CharField(max_length=2), allow_empty=True)

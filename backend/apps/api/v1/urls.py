@@ -25,6 +25,10 @@ router.register("audit-logs", views.AuditLogViewSet, basename="auditlog")
 router.register("billing/credits", views.CreditLedgerViewSet, basename="creditentry")
 router.register("intelligence/snapshots", views.WebsiteSnapshotViewSet, basename="websitesnapshot")
 router.register("intelligence/icps", views.ICPViewSet, basename="icp")
+router.register("intelligence/countries", views.CountryProfileViewSet, basename="countryprofile")
+router.register(
+    "intelligence/markets", views.MarketRecommendationViewSet, basename="marketrecommendation"
+)
 
 urlpatterns = [
     path("me", views.MeView.as_view(), name="me"),
