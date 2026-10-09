@@ -40,7 +40,15 @@ EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
 # Rate limits are asserted by their own tests, which enable them explicitly.
 # Leaving them on globally makes every other test order-dependent.
-ACCOUNT_RATE_LIMITS = {}
+# `False`, not `{}`. An empty dict is *merged over* allauth's defaults and
+# disables nothing, so signup stayed capped at 20/m/ip and the suite tripped
+# it once enough tests signed in within a minute -- intermittently, and only
+# in the slower environment, which is the worst way for a test to fail.
+# `False` is the documented switch that turns the whole mechanism off.
+#
+# The limits themselves are production behaviour and are worth testing; that
+# belongs in a test that sets them deliberately, not in every other one.
+ACCOUNT_RATE_LIMITS = False
 
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.InMemoryStorage"},

@@ -383,6 +383,37 @@ STORAGES = {
 }
 
 # --------------------------------------------------------------------------- #
+# Uploads (PRD section 110)
+# --------------------------------------------------------------------------- #
+
+# Anything larger than this is streamed to a temporary file rather than held in
+# memory, so one upload cannot exhaust a worker.
+FILE_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024
+# A guard against a request with a vast number of small fields, which is cheap
+# to send and expensive to parse.
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 1_000
+
+#: Hard ceiling on an imported file. Generous for a prospect list and far below
+#: anything that would threaten the worker parsing it.
+IMPORT_MAX_BYTES = int(env("IMPORT_MAX_BYTES", str(20 * 1024 * 1024)))
+
+#: Rows read from one file. A list longer than this is a data-provider feed,
+#: which belongs on the API rather than in an upload form.
+IMPORT_MAX_ROWS = int(env("IMPORT_MAX_ROWS", "50000"))
+
+#: Content types accepted for an import. Checked against the file's own
+#: declared type *and* its extension, because either alone is trivially lied
+#: about and the parser is chosen from this.
+IMPORT_ALLOWED_TYPES = {
+    "text/csv": ".csv",
+    "application/csv": ".csv",
+    "text/plain": ".csv",
+    "application/vnd.ms-excel": ".csv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+}
+
+# --------------------------------------------------------------------------- #
 # i18n
 # --------------------------------------------------------------------------- #
 

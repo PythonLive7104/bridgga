@@ -9,6 +9,9 @@ crosses the API boundary.
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
+from typing import Any
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -23,6 +26,7 @@ from apps.intelligence.models import (
     MarketRecommendation,
     WebsiteSnapshot,
 )
+from apps.leads.models import ImportJob
 from apps.organizations.models import Invitation, Membership, Organization, Workspace
 from apps.organizations.roles import Role, capabilities_for
 
@@ -469,3 +473,85 @@ class MarketSelectionSerializer(serializers.Serializer):
     """The markets the customer has actually decided to work."""
 
     codes = serializers.ListField(child=serializers.CharField(max_length=2), allow_empty=True)
+
+
+class ImportJobSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    source_name = serializers.CharField(source="source.name", read_only=True)
+    summary = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ImportJob
+        fields = [
+            "id",
+            "original_filename",
+            "content_type",
+            "size_bytes",
+            "source_name",
+            "status",
+            "column_mapping",
+            "detected_headers",
+            "sample_rows",
+            "summary",
+            "errors",
+            "error_message",
+            "started_at",
+            "finished_at",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    @extend_schema_field({"type": "object", "additionalProperties": {"type": "integer"}})
+    def get_summary(self, obj: ImportJob) -> dict:
+        return obj.summary()
+
+
+class ImportUploadSerializer(serializers.Serializer):
+    """Validates an upload before a byte of it is stored (PRD section 110)."""
+
+    file = serializers.FileField()
+    source_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    icp = serializers.UUIDField(required=False, allow_null=True)
+
+    def validate_file(self, uploaded: Any) -> Any:
+        from django.conf import settings
+
+        if uploaded.size > settings.IMPORT_MAX_BYTES:
+            limit = settings.IMPORT_MAX_BYTES // (1024 * 1024)
+            raise serializers.ValidationError(f"The file is larger than {limit}MB.")
+
+        allowed = settings.IMPORT_ALLOWED_TYPES
+        extension = PurePosixPath(uploaded.name or "").suffix.lower()
+        # Both the declared type and the extension must be acceptable. Either
+        # alone is trivially lied about, and the parser is chosen from the
+        # extension, so a mismatch is a reason to refuse rather than guess.
+        if extension not in set(allowed.values()):
+            raise serializers.ValidationError(
+                f"Unsupported file type. Accepted: {', '.join(sorted(set(allowed.values())))}."
+            )
+        declared = (uploaded.content_type or "").split(";")[0].strip().lower()
+        if declared and declared not in allowed:
+            raise serializers.ValidationError(
+                f"Unsupported content type {declared!r} for a {extension} file."
+            )
+        return uploaded
+
+
+class ImportMappingSerializer(serializers.Serializer):
+    """The confirmed column mapping, which starts the run."""
+
+    column_mapping = serializers.DictField(child=serializers.CharField(), allow_empty=False)
+
+    def validate_column_mapping(self, mapping: dict) -> dict:
+        from apps.leads.importing import CANONICAL_FIELDS
+
+        unknown = set(mapping) - set(CANONICAL_FIELDS)
+        if unknown:
+            raise serializers.ValidationError(f"Unknown field(s): {', '.join(sorted(unknown))}.")
+        # Without one of these there is nothing to identify a company by, and
+        # every row would create a new record.
+        if not ({"company", "website", "email"} & set(mapping)):
+            raise serializers.ValidationError(
+                "Map at least one of company, website or email, or rows cannot be matched."
+            )
+        return mapping

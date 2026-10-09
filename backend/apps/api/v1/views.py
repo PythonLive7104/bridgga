@@ -9,6 +9,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -29,6 +30,10 @@ from apps.intelligence.models import (
     ProfileStatus,
     WebsiteSnapshot,
 )
+from apps.leads import importing
+from apps.leads import services as lead_services
+from apps.leads import tasks as tasks_leads
+from apps.leads.models import ImportJob
 from apps.organizations import services
 from apps.organizations.models import Invitation, Membership, Organization, Workspace
 from apps.organizations.roles import Capability, capabilities_for
@@ -711,3 +716,111 @@ class MarketRecommendationViewSet(TenantReadOnlyViewSet):
             request=request,
         )
         return Response(s.MarketRecommendationSerializer(rows, many=True).data)
+
+
+class ImportJobViewSet(TenantScopedViewSet):
+    """Uploading and running a prospect list (PRD sections 51, 110).
+
+    Upload and run are separate calls on purpose. The file is parsed on
+    upload only far enough to show its headers, a suggested mapping and a few
+    real rows; the customer confirms that before anything is written. Guessing
+    silently is how a phone column lands in the email field for four thousand
+    people, and nobody finds out until the first send.
+    """
+
+    queryset = ImportJob.objects.all()
+    serializer_class = s.ImportJobSerializer
+    required_capability = Capability.PROSPECT_VIEW
+    write_capability = Capability.PROSPECT_MANAGE
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get_base_queryset(self) -> Any:
+        return ImportJob.all_objects.select_related("source", "icp")
+
+    @extend_schema(request=s.ImportUploadSerializer, responses={201: s.ImportJobSerializer})
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = s.ImportUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        upload = serializer.validated_data["file"]
+
+        icp = None
+        if serializer.validated_data.get("icp"):
+            icp = ICP.objects.filter(
+                organization=request.organization, public_id=serializer.validated_data["icp"]
+            ).first()
+
+        source = lead_services.get_or_create_source(
+            organization=request.organization,
+            name=serializer.validated_data.get("source_name") or f"Import: {upload.name}"[:150],
+            kind="import",
+        )
+
+        job = ImportJob.objects.create(
+            organization=request.organization,
+            file=upload,
+            original_filename=(upload.name or "upload")[:255],
+            content_type=(upload.content_type or "")[:100],
+            size_bytes=upload.size,
+            source=source,
+            icp=icp,
+            requested_by=request.user,
+        )
+
+        # Read the headers back from storage rather than the upload handler:
+        # a large file was streamed to disk and the in-memory copy may be
+        # exhausted, and this also proves the stored file is readable.
+        try:
+            with job.file.open("rb") as stream:
+                found = importing.preview(stream, filename=job.original_filename)
+        except importing.ImportFileError as exc:
+            job.status = "failed"
+            job.error_message = str(exc)[:500]
+            job.save(update_fields=["status", "error_message", "updated_at"])
+            raise ValidationError({"file": [str(exc)]}) from exc
+
+        job.detected_headers = found["headers"]
+        job.sample_rows = found["sample_rows"]
+        job.column_mapping = found["suggested_mapping"]
+        job.save(update_fields=["detected_headers", "sample_rows", "column_mapping", "updated_at"])
+
+        return Response(s.ImportJobSerializer(job).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=s.ImportMappingSerializer, responses={202: s.ImportJobSerializer})
+    @action(detail=True, methods=["post"], url_path="start")
+    def start(self, request: Request, **kwargs: Any) -> Response:
+        """Confirm the mapping and queue the run."""
+        job = self.get_object()
+        if not request.membership.has_capability(Capability.PROSPECT_MANAGE):
+            self.permission_denied(request, message="Your role cannot import prospects.")
+
+        if job.status not in {"pending", "ready", "failed"}:
+            raise ValidationError({"detail": f"This import is already {job.status}."})
+
+        serializer = s.ImportMappingSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        job.column_mapping = serializer.validated_data["column_mapping"]
+        job.status = "ready"
+        job.error_message = ""
+        job.save(update_fields=["column_mapping", "status", "error_message", "updated_at"])
+
+        record_audit(
+            organization=request.organization,
+            action=AuditAction.LEADS_IMPORTED,
+            actor=request.user,
+            target=job,
+            target_label=job.original_filename,
+            metadata={"fields": sorted(job.column_mapping)},
+            request=request,
+        )
+
+        tasks_leads.run_import_job.delay(job.pk)
+        job.refresh_from_db()
+        return Response(s.ImportJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(responses={200: {"type": "object"}})
+    @action(detail=False, methods=["get"], url_path="fields")
+    def fields(self, request: Request) -> Response:
+        """The fields a column may be mapped to, for the mapping interface."""
+        return Response(importing.CANONICAL_FIELDS)

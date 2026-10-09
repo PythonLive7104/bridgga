@@ -180,3 +180,18 @@ class Lead(TenantOwnedModel):
         if self.status in {LeadStatus.DISQUALIFIED, LeadStatus.SUPPRESSED}:
             return False
         return bool(self.person and self.person.can_be_emailed)
+
+
+# Re-exported so the app registry discovers it and callers have one import
+# path. Imports live in their own module because an upload with a mapping, a
+# row-by-row outcome and a file on disk is a different subject to a lead.
+from apps.leads.import_models import ImportJob, ImportStatus  # noqa: E402
+
+__all__ = [
+    "ImportJob",
+    "ImportStatus",
+    "Lead",
+    "LeadSource",
+    "LeadStatus",
+    "SourceKind",
+]

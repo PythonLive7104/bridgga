@@ -54,6 +54,8 @@ class AuditAction(models.TextChoices):
     MARKETS_RECOMMENDED = "markets_recommended", _("Markets recommended")
     MARKETS_SELECTED = "markets_selected", _("Markets selected")
 
+    LEADS_IMPORTED = "leads_imported", _("Leads imported")
+
     CAMPAIGN_LAUNCHED = "campaign_launched", _("Campaign launched")
     CAMPAIGN_PAUSED = "campaign_paused", _("Campaign paused")
     AUTOPILOT_ENABLED = "autopilot_enabled", _("AI autopilot enabled")

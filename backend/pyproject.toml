@@ -57,6 +57,14 @@ DJANGO_SETTINGS_MODULE = "config.settings.test"
 python_files = ["test_*.py", "tests.py"]
 testpaths = ["tests", "apps"]
 addopts = [
+    # --ds pins the settings module from the command line, which outranks the
+    # environment. Without it, DJANGO_SETTINGS_MODULE set in the surrounding
+    # shell wins: running the suite inside the Docker stack silently used
+    # config.settings.dev, where rate limits are live, DEBUG is on, CSRF is
+    # relaxed for private networks and Celery queues to a real broker instead
+    # of running inline. The tests then fail for reasons that have nothing to
+    # do with the code, which is the most expensive kind of failure there is.
+    "--ds=config.settings.test",
     "--strict-markers",
     "--strict-config",
     "-ra",

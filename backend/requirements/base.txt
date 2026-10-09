@@ -42,6 +42,10 @@ argon2-cffi>=25.1
 httpx>=0.28
 beautifulsoup4>=4.14
 
+# Lead import (PRD section 51). openpyxl reads XLSX in read-only, streaming
+# mode, so a large upload does not have to be held in memory to be parsed.
+openpyxl>=3.1
+
 # AI layer (Phase 2). pydantic validates every model output against a schema
 # before it reaches the database.
 # Both providers are installed; which one runs is a settings decision.
