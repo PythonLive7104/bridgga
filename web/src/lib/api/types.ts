@@ -519,3 +519,21 @@ export interface WebsiteAudit {
   fetched_at: string | null;
   created_at: string;
 }
+
+/** One step of the section 25 path, as the server derives it. */
+export interface OnboardingStep {
+  key: string;
+  label: string;
+  /** done | current | todo | running | failed */
+  state: string;
+  detail: string;
+}
+
+export interface OnboardingState {
+  steps: OnboardingStep[];
+  current: string;
+  complete: boolean;
+  completed_at: string | null;
+  /** The order is the server's to own, so the client never hardcodes it. */
+  order: string[];
+}

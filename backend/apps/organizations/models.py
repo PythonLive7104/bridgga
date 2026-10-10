@@ -36,6 +36,17 @@ class Organization(BaseModel):
     website = models.URLField(_("website"), blank=True)
     is_active = models.BooleanField(_("active"), default=True)
 
+    #: When this organization finished the section 25 path. The *progress*
+    #: through onboarding is derived from the records themselves
+    #: (apps.organizations.onboarding) rather than stored, because a counter
+    #: drifts the moment somebody deletes the thing it was counting. This one
+    #: timestamp is genuinely a decision and not a derivation: once a customer
+    #: has been through, deleting an ICP later should not drag them back
+    #: through an introduction they have already had.
+    onboarding_completed_at = models.DateTimeField(
+        _("onboarding completed at"), null=True, blank=True
+    )
+
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

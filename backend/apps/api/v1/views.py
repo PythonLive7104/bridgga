@@ -50,6 +50,7 @@ from apps.leads import services as lead_services
 from apps.leads import tasks as tasks_leads
 from apps.leads.models import ImportJob, ScoringProfile
 from apps.leads.scoring_models import default_weights
+from apps.organizations import onboarding as onboarding_state
 from apps.organizations import services
 from apps.organizations.models import Invitation, Membership, Organization, Workspace
 from apps.organizations.roles import Capability, capabilities_for
@@ -342,6 +343,39 @@ class AuditLogViewSet(TenantReadOnlyViewSet):
     required_capability = Capability.AUDIT_VIEW
     filterset_fields = ["action", "actor_email"]
     search_fields = ["target_label", "actor_email"]
+
+
+class OnboardingView(APIView):
+    """Where this customer has got to (PRD section 25).
+
+    Read-only and derived: it reads the records rather than a stored counter,
+    so the answer cannot be stale and the wizard self-heals if somebody
+    deletes the thing a step was about. See
+    ``apps.organizations.onboarding``.
+
+    ``POST`` records that the customer has been through the path, which is
+    the one part that is a decision rather than a derivation.
+    """
+
+    permission_classes = [RequireOrganization, HasCapability]
+    required_capability = Capability.ORG_VIEW
+    write_capability = Capability.ORG_MANAGE
+
+    @extend_schema(responses={200: {"type": "object"}})
+    def get(self, request: Request) -> Response:
+        return Response(onboarding_state.onboarding_state(request.organization).as_dict())
+
+    @extend_schema(request=None, responses={200: {"type": "object"}})
+    def post(self, request: Request) -> Response:
+        """Finish onboarding, whether or not every step was completed.
+
+        Deliberately not gated on all five being done. Somebody who does not
+        want market recommendations should be able to leave and use the
+        product; a wizard that will not let go is a wizard people learn to
+        dread.
+        """
+        organization = onboarding_state.mark_complete(request.organization)
+        return Response(onboarding_state.onboarding_state(organization).as_dict())
 
 
 class WebsiteAuditView(APIView):

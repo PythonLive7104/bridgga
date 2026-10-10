@@ -74,6 +74,9 @@ urlpatterns = [
     ),
     # A singleton: one scoring weighting per organization (PRD section 32).
     path("scoring/profile", views.ScoringProfileView.as_view(), name="scoring-profile"),
+    # Where a customer has got to in the section 25 path. Derived from the
+    # records, so it cannot go stale.
+    path("onboarding", views.OnboardingView.as_view(), name="onboarding"),
     path("billing/subscription", views.SubscriptionView.as_view(), name="subscription"),
     path("billing/balance", views.CreditBalanceView.as_view(), name="credit-balance"),
     *router.urls,

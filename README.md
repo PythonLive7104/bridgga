@@ -21,8 +21,9 @@ deterministic detectors and one grounded AI interpreter, the opportunity score
 with configurable weights and a per-component explanation, and the research
 agent with the evidence-verified reason-to-contact, and the website sales
 audit -- which runs for anybody, with no account, at
-`/tools/website-audit`. Next: the onboarding wizard, and then Phase 3.
-No campaigns yet.
+`/tools/website-audit` -- and the onboarding wizard that strings the five
+buildable steps of section 25 together. **Phase 2 is complete.** Next: Phase 3,
+acquisition. No campaigns yet.
 
 ---
 
