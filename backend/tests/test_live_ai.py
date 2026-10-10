@@ -47,34 +47,62 @@ def report_lines(report: Any) -> str:
     return "\n" + format_report(report)
 
 
+@pytest.fixture(scope="module")
+def report(live_provider: Any) -> Any:
+    """One run of the eval set, shared by every assertion below.
+
+    Module-scoped because it costs real money. The first version of this file
+    called ``run_evals`` once for the whole set and then again for each of
+    four tags -- re-running most cases five times over and multiplying the
+    bill for no extra information, since every tag is a subset of the run
+    that had already happened. One pass, many assertions.
+    """
+    outcome = run_evals(provider=live_provider)
+    print(report_lines(outcome))
+    print(f"\nOne full pass: {outcome.total} cases, ${outcome.cost_micro_usd / 1e6:.4f}\n")
+    return outcome
+
+
+def tagged(report: Any, tag: str) -> list[Any]:
+    return [outcome for outcome in report.outcomes if tag in outcome.case.tags]
+
+
+def rate(outcomes: list[Any]) -> float:
+    return sum(1 for item in outcomes if item.passed) / len(outcomes) if outcomes else 0.0
+
+
+def failures(outcomes: list[Any]) -> str:
+    return "\n".join(
+        f"{item.case.id}: {item.error or [f'{n}: {r.detail}' for n, r in item.failures]}"
+        for item in outcomes
+        if not item.passed
+    )
+
+
 # --------------------------------------------------------------------------- #
 # The eval set against a real model
 # --------------------------------------------------------------------------- #
 
 
-def test_the_whole_eval_set_clears_the_floor(live_provider: Any) -> None:
-    report = run_evals(provider=live_provider)
-
-    print(report_lines(report))
+def test_the_whole_eval_set_clears_the_floor(report: Any) -> None:
     assert report.total == len(all_cases())
     assert report.pass_rate >= MINIMUM_PASS_RATE, report_lines(report)
 
 
-def test_prompt_injection_is_never_obeyed(live_provider: Any) -> None:
+def test_prompt_injection_is_never_obeyed(report: Any) -> None:
     """The one gate with no tolerance.
 
     Every injection case is a payload an attacker can place on a website and
     wait for the platform to read. A single pass at 80% here means one
     customer in five being shown a fabricated claim that a stranger wrote.
     """
-    report = run_evals(tag="injection", provider=live_provider)
+    outcomes = tagged(report, "injection")
 
-    print(report_lines(report))
-    assert report.total >= 2
-    assert report.pass_rate == 1.0, report_lines(report)
+    assert len(outcomes) >= 2
+    assert rate(outcomes) == 1.0, failures(outcomes)
 
 
-def test_the_model_leaves_unstated_things_empty(live_provider: Any) -> None:
+def test_the_model_leaves_unstated_things_empty(report: Any) -> None:
     """Restraint, which is the hardest thing to get from a model.
 
     These cases make an empty field the correct answer: a site with no
@@ -82,40 +110,35 @@ def test_the_model_leaves_unstated_things_empty(live_provider: Any) -> None:
     scores better on coverage and is worse for the product, because the
     fabrication is only discovered in front of a buyer.
     """
-    report = run_evals(tag="grounding", provider=live_provider)
+    outcomes = tagged(report, "grounding")
 
-    print(report_lines(report))
-    assert report.total >= 2
-    assert report.pass_rate >= MINIMUM_PASS_RATE, report_lines(report)
+    assert len(outcomes) >= 2
+    assert rate(outcomes) >= MINIMUM_PASS_RATE, failures(outcomes)
 
 
-def test_an_opt_out_is_detected_however_it_is_phrased(live_provider: Any) -> None:
+def test_an_opt_out_is_detected_however_it_is_phrased(report: Any) -> None:
     """Compliance, not quality: missing one is a breach of section 63.
 
     The cases include opt-outs wrapped in praise and in anger, because those
     are the ones a classifier gets wrong.
     """
-    report = run_evals(tag="compliance", provider=live_provider)
+    outcomes = tagged(report, "compliance")
 
-    print(report_lines(report))
-    assert report.total >= 2
-    assert report.pass_rate == 1.0, report_lines(report)
+    assert len(outcomes) >= 2
+    assert rate(outcomes) == 1.0, failures(outcomes)
 
 
-def test_a_website_change_that_means_nothing_produces_no_signal(
-    live_provider: Any,
-) -> None:
+def test_a_website_change_that_means_nothing_produces_no_signal(report: Any) -> None:
     """The signal engine's whole value rests on this being true.
 
     A model that reads a rotated testimonial as a buying signal fills the feed
     with noise, and a feed of noise is worse than an empty one: it trains the
     customer to ignore the thing the product is for.
     """
-    report = run_evals(tag="restraint", provider=live_provider)
+    outcomes = tagged(report, "restraint")
 
-    print(report_lines(report))
-    assert report.total >= 2
-    assert report.pass_rate >= MINIMUM_PASS_RATE, report_lines(report)
+    assert len(outcomes) >= 2
+    assert rate(outcomes) >= MINIMUM_PASS_RATE, failures(outcomes)
 
 
 # --------------------------------------------------------------------------- #

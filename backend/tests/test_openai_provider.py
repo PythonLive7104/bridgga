@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from apps.ai.pricing import MODELS, Tier, resolve_model
+from apps.ai.pricing import MODELS, Tier, reasoning_effort_for, resolve_model
 from apps.ai.providers.base import (
     AIOutputInvalid,
     AIProviderError,
@@ -77,6 +77,19 @@ def provider_with(response: Any = None, error: Exception | None = None) -> OpenA
 
 
 OPENAI_SPEC = MODELS["gpt-5-mini"]
+
+
+def _ok_response(usage: Any = None) -> SimpleNamespace:
+    """A successful, schema-valid response."""
+    return SimpleNamespace(
+        output_parsed=Answer(answer="4"),
+        output_text='{"answer":"4"}',
+        status="completed",
+        error=None,
+        incomplete_details=None,
+        output=[],
+        usage=usage or fake_usage(input_tokens=100, output_tokens=5),
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -267,6 +280,119 @@ def test_rate_limit_is_retryable() -> None:
     with pytest.raises(AIRateLimited) as caught:
         provider_with(error=error).complete(make_request(), spec=OPENAI_SPEC)
     assert caught.value.retryable is True
+
+
+# --------------------------------------------------------------------------- #
+# Reasoning models
+#
+# Everything in this block was found by running the live suite against a real
+# key. All of it was invisible to a mocked test, because the fake client never
+# spent tokens thinking and never validated a truncated body.
+# --------------------------------------------------------------------------- #
+
+
+def test_the_output_budget_leaves_room_for_the_model_to_think() -> None:
+    """The bug: a 1,000-token budget, 768 spent reasoning, JSON truncated.
+
+    `max_output_tokens` on the request is the budget for the *answer*, but the
+    vendor's cap covers reasoning too. Passing the answer budget straight
+    through starved the answer -- intermittently, which is why it survived
+    every test until a real model ran.
+    """
+    provider = provider_with(_ok_response())
+    request = make_request()
+    request.max_output_tokens = 1_000
+
+    provider.complete(request, spec=OPENAI_SPEC)
+
+    sent = provider.client.responses.calls[0]["max_output_tokens"]
+    assert sent > 1_000, "no allowance was added for reasoning tokens"
+
+
+def test_the_budget_never_exceeds_what_the_model_allows() -> None:
+    provider = provider_with(_ok_response())
+    request = make_request()
+    request.max_output_tokens = OPENAI_SPEC.max_output_tokens
+
+    provider.complete(request, spec=OPENAI_SPEC)
+
+    assert provider.client.responses.calls[0]["max_output_tokens"] == OPENAI_SPEC.max_output_tokens
+
+
+def test_a_cheap_call_is_told_not_to_deliberate() -> None:
+    """Measured: low effort took the same classification from 907 tokens to 310.
+
+    Output tokens are the expensive ones, so this is a cost decision as much
+    as a correctness one.
+    """
+    assert reasoning_effort_for(Tier.CHEAP) == "low"
+    assert reasoning_effort_for(Tier.ADVANCED) == "medium"
+
+    provider = provider_with(_ok_response())
+    request = make_request()
+    request.reasoning_effort = "low"
+
+    provider.complete(request, spec=OPENAI_SPEC)
+
+    assert provider.client.responses.calls[0]["reasoning"] == {"effort": "low"}
+
+
+def test_reasoning_is_not_sent_to_a_model_that_cannot_reason() -> None:
+    """An override to a legacy model must not be handed a parameter it rejects."""
+    from dataclasses import replace
+
+    legacy = replace(OPENAI_SPEC, supports_reasoning=False)
+    provider = provider_with(_ok_response())
+    request = make_request()
+    request.reasoning_effort = "low"
+    request.max_output_tokens = 1_000
+
+    provider.complete(request, spec=legacy)
+
+    call = provider.client.responses.calls[0]
+    assert "reasoning" not in call
+    assert call["max_output_tokens"] == 1_000, "no allowance is needed without reasoning"
+
+
+def test_a_schema_error_raised_inside_the_sdk_is_a_retryable_output_failure() -> None:
+    """The failure that escaped the whole provider contract.
+
+    The SDK validates the response against the schema inside `.parse()`, so a
+    truncated body arrives as a Pydantic error -- which is in no provider's
+    exception hierarchy. Uncaught, it meant no retry and a job row left
+    PENDING for ever.
+    """
+    from pydantic import ValidationError
+
+    try:
+        Answer.model_validate_json('{"answer":"cut off mid-stri')
+    except ValidationError as exc:
+        error: Exception = exc
+
+    with pytest.raises(AIOutputInvalid) as caught:
+        provider_with(error=error).complete(make_request(), spec=OPENAI_SPEC)
+
+    assert caught.value.retryable is True
+    assert "did not match the schema" in str(caught.value)
+
+
+def test_reasoning_tokens_are_recorded_without_being_billed_twice() -> None:
+    """Vendors report them inside output_tokens and bill them at that rate."""
+    usage = SimpleNamespace(
+        input_tokens=1_000,
+        output_tokens=900,
+        total_tokens=1_900,
+        input_tokens_details=SimpleNamespace(cached_tokens=0, cache_write_tokens=0),
+        output_tokens_details=SimpleNamespace(reasoning_tokens=768),
+    )
+    response = _ok_response(usage=usage)
+
+    result = provider_with(response).complete(make_request(), spec=OPENAI_SPEC)
+
+    assert result.usage.reasoning_tokens == 768
+    assert result.usage.output_tokens == 900
+    # 1000 + 900, not 1000 + 900 + 768.
+    assert result.usage.total_tokens == 1_900
 
 
 def test_an_empty_balance_is_not_treated_as_a_rate_limit() -> None:

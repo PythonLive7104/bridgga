@@ -39,6 +39,9 @@ class AIJob(TenantOwnedModel):
     # prompt change rather than guessed at.
     prompt_name = models.CharField(_("prompt"), max_length=100, blank=True)
     prompt_version = models.PositiveIntegerField(_("prompt version"), default=0)
+    #: Version of the shared standing rules (apps.ai.prompts.GUARDRAILS) in
+    #: force for this call. 0 means the call predates the field.
+    guardrails_version = models.PositiveSmallIntegerField(_("guardrails version"), default=0)
 
     provider = models.CharField(_("provider"), max_length=40, blank=True)
     model_id = models.CharField(_("model"), max_length=100, blank=True)
@@ -54,6 +57,11 @@ class AIJob(TenantOwnedModel):
     output_tokens = models.IntegerField(_("output tokens"), default=0)
     cache_read_tokens = models.IntegerField(_("cache read tokens"), default=0)
     cache_write_tokens = models.IntegerField(_("cache write tokens"), default=0)
+    #: Thinking tokens, reported by the vendor *inside* ``output_tokens`` and
+    #: billed at the output rate. Stored separately rather than summed, so the
+    #: ledger can answer "what did we pay to deliberate?" -- on a cheap
+    #: classification it has been 85% of the output.
+    reasoning_tokens = models.IntegerField(_("reasoning tokens"), default=0)
     cost_micro_usd = models.BigIntegerField(
         _("cost (micro USD)"),
         default=0,
@@ -102,9 +110,20 @@ class AIJob(TenantOwnedModel):
 
     @property
     def prompt_pin(self) -> str:
+        """What produced this output, e.g. ``company_profile@2g2``.
+
+        The guardrails version is part of it because the rendered prompt is
+        the standing rules plus the prompt's own text, and the rules can
+        change without any prompt's version moving.
+
+        Rows written before the version was recorded carry 0 and render in the
+        old form. They genuinely do not know which rules they ran under, and
+        printing a number for them would be a guess dressed as a record.
+        """
         if not self.prompt_name:
             return ""
-        return f"{self.prompt_name}@{self.prompt_version}"
+        pin = f"{self.prompt_name}@{self.prompt_version}"
+        return f"{pin}g{self.guardrails_version}" if self.guardrails_version else pin
 
     @property
     def cost_usd(self) -> float:

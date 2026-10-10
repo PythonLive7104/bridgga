@@ -50,6 +50,13 @@ class ModelSpec:
     cache_read_multiplier: Decimal = Decimal("0.1")
     cache_write_multiplier: Decimal = Decimal("0")
 
+    #: Whether this model thinks before answering, and bills the thinking as
+    #: output. It changes two things a caller must not have to know about: the
+    #: output budget has to leave room for reasoning tokens, and the effort can
+    #: be dialled down for work that needs no deliberation. False for a legacy
+    #: model, so an override to one does not send it a parameter it rejects.
+    supports_reasoning: bool = False
+
     def cost_micro_usd(
         self,
         *,
@@ -95,6 +102,7 @@ _ANTHROPIC_MODELS = [
         context_tokens=1_000_000,
         max_output_tokens=128_000,
         cache_write_multiplier=Decimal("1.25"),
+        supports_reasoning=True,
     ),
     ModelSpec(
         model_id="claude-sonnet-5-5",
@@ -104,6 +112,7 @@ _ANTHROPIC_MODELS = [
         context_tokens=1_000_000,
         max_output_tokens=128_000,
         cache_write_multiplier=Decimal("1.25"),
+        supports_reasoning=True,
     ),
     ModelSpec(
         model_id="claude-haiku-4-5",
@@ -113,6 +122,7 @@ _ANTHROPIC_MODELS = [
         context_tokens=200_000,
         max_output_tokens=64_000,
         cache_write_multiplier=Decimal("1.25"),
+        supports_reasoning=True,
     ),
 ]
 
@@ -125,6 +135,7 @@ _OPENAI_MODELS = [
         output_micro_usd_per_mtok=_usd("0.40"),
         context_tokens=400_000,
         max_output_tokens=128_000,
+        supports_reasoning=True,
     ),
     ModelSpec(
         model_id="gpt-5-mini",
@@ -133,6 +144,7 @@ _OPENAI_MODELS = [
         output_micro_usd_per_mtok=_usd("2.00"),
         context_tokens=400_000,
         max_output_tokens=128_000,
+        supports_reasoning=True,
     ),
     ModelSpec(
         model_id="gpt-5.4-nano",
@@ -141,6 +153,7 @@ _OPENAI_MODELS = [
         output_micro_usd_per_mtok=_usd("1.25"),
         context_tokens=400_000,
         max_output_tokens=128_000,
+        supports_reasoning=True,
     ),
     ModelSpec(
         model_id="gpt-5.4-mini",
@@ -149,6 +162,7 @@ _OPENAI_MODELS = [
         output_micro_usd_per_mtok=_usd("4.50"),
         context_tokens=400_000,
         max_output_tokens=128_000,
+        supports_reasoning=True,
     ),
     ModelSpec(
         model_id="gpt-5",
@@ -157,6 +171,7 @@ _OPENAI_MODELS = [
         output_micro_usd_per_mtok=_usd("10.00"),
         context_tokens=400_000,
         max_output_tokens=128_000,
+        supports_reasoning=True,
     ),
     ModelSpec(
         model_id="gpt-5.2",
@@ -165,6 +180,7 @@ _OPENAI_MODELS = [
         output_micro_usd_per_mtok=_usd("14.00"),
         context_tokens=400_000,
         max_output_tokens=128_000,
+        supports_reasoning=True,
     ),
     ModelSpec(
         model_id="gpt-6-astra",
@@ -177,6 +193,7 @@ _OPENAI_MODELS = [
         context_tokens=1_050_000,
         max_output_tokens=128_000,
         cache_write_multiplier=Decimal("1.25"),
+        supports_reasoning=True,
     ),
 ]
 
@@ -195,9 +212,21 @@ PROVIDER_TIER_DEFAULTS: dict[str, dict[Tier, str]] = {
     "openai": {
         Tier.CHEAP: "gpt-5-nano",
         Tier.STANDARD: "gpt-5-mini",
-        # gpt-5.2 rather than gpt-6-astra: Astra is ~6x the input cost and this
-        # tier runs per prospect researched. Set AI_MODEL_ADVANCED=gpt-6-astra
-        # to trade cost for capability.
+        # The advanced tier is now reserved for calls that run *once per
+        # customer*: reading their website, drafting their ICP, ranking their
+        # markets. Three calls, a few cents, at the moment a stranger is
+        # deciding whether this product understands their business -- which
+        # is the worst possible place to save money.
+        #
+        # Measured, on the same eval set: gpt-5.2 scored 22/22, gpt-5-mini
+        # 20/22. One of those two failures was a bad test. The other was real
+        # and was the thing that matters most: shown a company whose entire
+        # website said "Established 1998. Contact us", mini wrote a confident
+        # reason to contact them. Every quote in it was verbatim and the whole
+        # argument was invented.
+        #
+        # Volume is what separates this tier from the standard one below, not
+        # importance. AI_MODEL_ADVANCED in backend/.env overrides it.
         Tier.ADVANCED: "gpt-5.2",
     },
 }
@@ -221,6 +250,27 @@ def configured_provider() -> str:
     if os.environ.get("OPENAI_API_KEY"):
         return "openai"
     return "stub"
+
+
+#: How hard a model should think, by what the call is for.
+#:
+#: Measured, not guessed. A reply classification on gpt-5-nano spent 768 of
+#: its 907 output tokens reasoning about a one-line email, which cost three
+#: times what the answer did and intermittently truncated the JSON it was
+#: supposed to produce. At low effort the same call uses 310 tokens and 128 of
+#: them reasoning.
+#:
+#: Advanced stays at the vendor default: research and strategy are exactly
+#: where deliberation earns its price.
+REASONING_EFFORT: dict[Tier, str] = {
+    Tier.CHEAP: "low",
+    Tier.STANDARD: "low",
+    Tier.ADVANCED: "medium",
+}
+
+
+def reasoning_effort_for(tier: Tier | str) -> str:
+    return REASONING_EFFORT.get(Tier(tier), "")
 
 
 def resolve_model(tier: Tier | str, *, provider: str | None = None) -> ModelSpec:

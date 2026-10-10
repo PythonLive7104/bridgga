@@ -508,7 +508,7 @@ def test_the_brief_records_what_it_was_based_on(
     )
 
     assert research.status == ResearchStatus.READY
-    assert research.prompt_pin == "prospect_research@1"
+    assert research.prompt_pin == "prospect_research@2g2"
     assert research.researched_at is not None
     assert list(research.source_signals.all()) == [expansion_signal]
     # What "high value" meant on the day. The weighting is configurable, so

@@ -22,6 +22,7 @@ from apps.ai.evals.cases import (
     FieldLacks,
     FieldNotEmpty,
     ItemQuotesSource,
+    MaxItems,
     register_case,
 )
 
@@ -125,8 +126,14 @@ register_case(
             # evidence-based -- so the correct output has no reason at all.
             FieldEmpty("reason_to_contact"),
             FieldNotEmpty("unknowns"),
-            FieldEmpty("personalization_points"),
             FieldContains("confidence", "low"),
+            # Whatever it does offer has to be quotable. This case used to
+            # demand *no* personalization points, which was the test being
+            # wrong rather than the model: "Established 1998." is on the page,
+            # and "you have been going since 1998" is a thin opener but not a
+            # fabrication. What matters is that nothing is invented.
+            ItemQuotesSource("personalization_points"),
+            MaxItems("personalization_points", 2),
         ],
         notes=(
             "Omitting the reason is correct. Inventing one puts a fabrication "

@@ -30,6 +30,20 @@ from apps.ai.schemas import (
     SignalInterpretation,
 )
 
+#: Version of the standing rules below.
+#:
+#: GUARDRAILS is prepended to every prompt, so editing it changes the text
+#: of all of them at once -- and until this existed, it did so without
+#: changing a single recorded prompt version. A quality shift the day after
+#: a guardrail edit would have been unattributable, which is the one thing
+#: the whole versioning scheme is for. It appears in every job's pin.
+#:
+#: v2 required quotes to be contiguous and verbatim. "Closely paraphrase"
+#: was in rule 3 from the start and is not checkable: the platform verifies
+#: evidence by looking for the quote in the source, so a paraphrase reads as
+#: a fabrication, and a quote spliced with an ellipsis reads as one too.
+GUARDRAILS_VERSION = 2
+
 # Prepended to every prompt. Separate constant so a change to the standing
 # rules is one edit and shows up in every prompt's rendered text.
 GUARDRAILS = """\
@@ -43,10 +57,14 @@ You are part of a B2B customer-acquisition platform. Follow these rules without 
    empty and add it to `unknowns` where that field exists. An empty field is a
    correct answer; a plausible guess is not.
 3. Every substantive claim must be supported by something present in the source.
-   When recording evidence, quote or closely paraphrase the source and give its
-   URL where you have one.
-4. Set confidence honestly. Use "low" when the source is thin or ambiguous.
-5. Never output personal data beyond publicly published business contact
+4. A `quote` must be text copied from the source exactly as it appears there:
+   contiguous, verbatim, no paraphrase, and no ellipsis joining separate
+   passages. The platform verifies a quote by searching for it in the source,
+   so anything else is discarded as an invention even when the claim it
+   supports is true. Give the source URL where you have one, and leave the
+   quote empty rather than approximating it.
+5. Set confidence honestly. Use "low" when the source is thin or ambiguous.
+6. Never output personal data beyond publicly published business contact
    details.
 """
 
@@ -62,8 +80,14 @@ class Prompt:
 
     @property
     def pinned_name(self) -> str:
-        """Stable identifier recorded on every job, e.g. ``company_profile@3``."""
-        return f"{self.name}@{self.version}"
+        """Identifier recorded on every job, e.g. ``company_profile@3g2``.
+
+        Carries the guardrails version as well as the prompt's own, because
+        the rendered text is the two concatenated. Without it, a change to the
+        standing rules moved every prompt's behaviour while every recorded pin
+        stayed exactly the same.
+        """
+        return f"{self.name}@{self.version}g{GUARDRAILS_VERSION}"
 
     def render_instructions(self) -> str:
         return f"{GUARDRAILS}\n\n{self.instructions.strip()}\n"
@@ -174,7 +198,12 @@ Specific guidance:
 MARKET_RECOMMENDATION = register(
     Prompt(
         name="market_recommendation",
-        version=1,
+        # v2: `factors` became nine named fields. v1 declared it as a
+        # free-form mapping, which OpenAI's structured output rejects with a
+        # 400 before the model runs -- so this prompt had never once worked
+        # against OpenAI, and every test passed because the stub provider does
+        # not validate schemas.
+        version=2,
         tier=Tier.ADVANCED,
         output_schema=MarketRecommendations,
         instructions="""\
@@ -208,12 +237,25 @@ Specific guidance:
 PROSPECT_RESEARCH = register(
     Prompt(
         name="prospect_research",
-        version=1,
-        # Advanced tier. Section 34 scopes this to high-value prospects, so it
-        # is low volume and high consequence: its output goes into a message a
-        # human sends to a real buyer, and a cheap model's plausible invention
-        # costs a relationship rather than a retry.
-        tier=Tier.ADVANCED,
+        # v2 lists what does not count as an observation. v1 was explicit that
+        # an unsupported reason should be omitted, and a strong model obliged;
+        # a cheaper one wrote "they are based in Ghana and were established in
+        # 1998, so they may have fleet activities" -- every quote verbatim,
+        # every word of the argument invented. The code check passes that,
+        # because grounding proves provenance and not relevance. Naming the
+        # non-observations is what closes it.
+        version=2,
+        # Standard tier, unlike the three agents that run at onboarding.
+        # Section 34 calls this "for high-value prospects", but high-value is
+        # relative: a workspace researching fifty prospects a week makes this
+        # the highest-volume expensive call in the product, where the others
+        # run three times per customer and never again.
+        #
+        # The quality that justified an advanced model here was restraint --
+        # declining to invent a reason for a company with nothing to say. That
+        # was bought with v2's list of non-observations instead, which is
+        # cheaper than a bigger model and works on every model.
+        tier=Tier.STANDARD,
         output_schema=ProspectResearch,
         max_output_tokens=4_000,
         instructions="""You are briefing a salesperson before they contact one company.
@@ -235,7 +277,11 @@ Produce the brief. Specific guidance:
   to mention. Not "be consultative".
 - `personalization_points` are details a human could not have guessed. Each
   one needs a `source_quote` taken **verbatim** from the material; a point
-  without one will be discarded.
+  without one will be discarded. The same exclusions apply as for the
+  observation below: their location, their founding year, their industry and
+  the existence of their website are not personalization, they are the
+  mail-merge fields every spammer uses. Return an empty list rather than
+  padding it.
 - `decision_maker_titles` are roles that make sense for this company and this
   product. Use the ICP's buyer titles where they fit what the prospect
   actually is.
@@ -250,6 +296,17 @@ Produce the brief. Specific guidance:
 - If the material does not support an observation worth stating, **omit
   `reason_to_contact` entirely**. An absent reason is a correct answer; an
   invented one is put in front of a buyer under the customer's name.
+- These are **not** observations worth stating, however well you can quote
+  them: that the company exists, its name, its founding year, how long it has
+  traded, where it is based, that it is in a country the seller targets, that
+  its industry resembles the ICP, that it has a contact form or a website.
+  None of them is news, none of them happened recently, and a buyer who
+  receives "I see you were established in 1998" knows immediately that it was
+  sent to a list.
+- An observation is something that **happened** or that the company is doing
+  now: a move, a hire, a launch, a price change, a tool they adopted, a
+  statement of intent on their own site. If all you have is who and where
+  they are, omit the reason and say what is missing in `unknowns`.
 
 Put anything a salesperson would need and the material does not say in
 `unknowns`, and set `confidence` to `low` when the material is thin.
@@ -261,7 +318,12 @@ Put anything a salesperson would need and the material does not say in
 SIGNAL_INTERPRETATION = register(
     Prompt(
         name="signal_interpretation",
-        version=1,
+        # v2 names the non-signals explicitly. v1 reported an added
+        # testimonials section as a `website_change` signal -- grounded,
+        # low-confidence, and exactly the noise that teaches a customer to
+        # stop reading the feed. Saying "most changes are not signals" was
+        # not enough; the list is.
+        version=2,
         # Cheap tier, and it must stay cheap: this runs per prospect whose
         # site changed, which is the highest-volume model call in Phase 2.
         # The deterministic detectors have already established *that*
@@ -277,9 +339,17 @@ Decide whether any of it is a buying signal -- an observable change that gives
 a salesperson a specific reason to contact this company now.
 
 Specific guidance:
-- **Returning no signals is usually correct.** Most website changes are
-  copy edits, new blog posts, rotated testimonials and design tweaks. None of
-  those is a reason to call. Return an empty list and say so in `reasoning`.
+- **Returning no signals is usually correct.** Return an empty list and say
+  so in `reasoning`.
+- The following are **never** signals, however much they changed: added or
+  rotated testimonials, customer quotes, logos, awards, team or office
+  photos, blog posts, copy edits, rewording, design and layout changes,
+  renamed sections, cookie and legal notices, social links. A company is not
+  more likely to buy because it published a testimonial.
+- A signal is a change in what the company *does or needs*: a new product or
+  module, a published price change, a new location or market, a new
+  integration or technology, an acquisition, funding, or a role it is
+  hiring for.
 - Choose `type` from the fixed list, and only where the change itself shows
   it. A new /pricing page is `pricing_change` or `new_pages`; a new office
   address is `new_office`; a launch announcement is `product_launch`.
@@ -302,7 +372,22 @@ Specific guidance:
 REPLY_CLASSIFICATION = register(
     Prompt(
         name="reply_classification",
-        version=1,
+        # v2 names the precedence between overlapping labels, which the live
+        # eval run showed the model deciding differently each time. Four
+        # boundaries, all with consequences: an interested buyer who asks a
+        # question is interested, not a `question`; an answerable doubt is an
+        # objection rather than `not_interested`, which would retire a
+        # prospect who has just explained how to win them; a decline that
+        # closes the door is still `not_interested`; and a reply naming
+        # somebody else is a `referral`, not `wrong_person`.
+        #
+        # The first draft of v2 fixed two of those and broke a third -- a
+        # polite decline became an objection. The eval set caught it before
+        # anything shipped, and this text replaced that draft under the same
+        # version because no job was ever recorded against it: `run_evals` is
+        # stateless and writes no AIJob rows. A version bump exists to
+        # attribute recorded history, and there was none.
+        version=2,
         # Cheap tier: high volume, narrow judgement, a fixed label set.
         tier=Tier.CHEAP,
         output_schema=ReplyClassification,
@@ -310,16 +395,43 @@ REPLY_CLASSIFICATION = register(
         instructions="""\
 Classify one inbound reply to a sales email into exactly one category.
 
+The labels overlap, so these rules decide precedence. Apply them in order.
+
 - `unsubscribe` is for any request to stop being contacted, however it is
   phrased, including an angry one. When in doubt between `unsubscribe` and
   anything else, choose `unsubscribe`.
+- **Interest outranks the form the reply takes.** A message that expresses
+  interest and also asks something is `interested`, not `question`: the next
+  action is to pursue it, and a question is how interested people ask. Use
+  `question` only for a neutral enquiry that expresses no interest either way.
+- **An answerable doubt is an `objection`; a closed door is
+  `not_interested`.** The test is whether the reply leaves something to
+  respond to. "We tried something like this and the data was wrong", "it
+  looks expensive", "no budget this quarter" are objections -- the sender has
+  named what would need answering and is still in the conversation. "Thanks,
+  we already have a provider, good luck" is `not_interested`: it gives a
+  reason while ending the exchange. Filing an objection as `not_interested`
+  retires a prospect who has just explained how to win them; filing a
+  decline as an objection keeps pestering someone who has finished.
+- **A named person makes it a `referral`.** If the reply names or copies in
+  somebody else, it is `referral` even when it also says this is not their
+  area. `wrong_person` is for a reply that disclaims ownership and names
+  nobody, which leaves the sender with no next step.
+- `meeting_request` outranks `interested` when a specific call, demo or time
+  is asked for.
+- **An automatic absence reply is `out_of_office`, whatever else it says.**
+  "I am away until 4 March", "on leave with limited access to email", a
+  delegation to a colleague while absent. The sender has expressed no view at
+  all, so filing it as `not_interested` retires a prospect for being on
+  holiday, and the right action is to try again after the date they gave.
+- `unclear` is a real answer. Use it rather than picking between two labels
+  at random when the reply genuinely supports neither.
 - Set `contains_opt_out` to true whenever the message asks not to be contacted
   again, even if the chosen category is something else. This flag is acted on
   independently of the category.
 - `wrong_person` is for a reply saying someone else owns this, without naming
   them. `referral` is when they name or forward to someone specific.
-- `unclear` is a legitimate answer. Use it rather than guessing between two
-  categories.
+
 """,
     )
 )

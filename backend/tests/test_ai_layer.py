@@ -15,7 +15,14 @@ from apps.ai.pricing import (
     micro_usd_to_minor_units,
     resolve_model,
 )
-from apps.ai.prompts import GUARDRAILS, Prompt, get_prompt, register
+from apps.ai.prompts import (
+    GUARDRAILS,
+    GUARDRAILS_VERSION,
+    Prompt,
+    all_prompts,
+    get_prompt,
+    register,
+)
 from apps.ai.providers.base import (
     AIOutputInvalid,
     AIProviderError,
@@ -115,7 +122,54 @@ def test_registered_prompts_carry_the_guardrails() -> None:
 
 def test_prompts_are_version_pinned() -> None:
     prompt = get_prompt("company_profile")
-    assert prompt.pinned_name == f"company_profile@{prompt.version}"
+    assert prompt.pinned_name == f"company_profile@{prompt.version}g{GUARDRAILS_VERSION}"
+
+
+def test_every_prompt_schema_is_acceptable_to_a_structured_output_api() -> None:
+    """Catch, for free, the class of bug that cost a live 400.
+
+    ``market_recommendation`` declared one field as ``dict[str, str]``.
+    OpenAI's structured output refuses a schema containing an open-ended
+    object, so the request was rejected before the model ran -- and every
+    test passed, because the stub provider returns a schema-valid instance
+    without ever validating the schema itself.
+
+    This runs the vendor's own strict-schema transformer over every
+    registered prompt. It needs no key, no network and no money, and it fails
+    on exactly what the API would have failed on.
+    """
+    strict = pytest.importorskip(
+        "openai.lib._pydantic", reason="openai SDK not installed"
+    ).to_strict_json_schema
+
+    for name, prompt in all_prompts().items():
+        try:
+            schema = strict(prompt.output_schema)
+        except Exception as exc:
+            pytest.fail(f"{name}: output schema is not strict-mode valid: {exc}")
+
+        open_nodes = _objects_accepting_undeclared_keys(schema)
+        assert not open_nodes, f"{name}: these objects accept undeclared keys: {open_nodes}"
+
+
+def _objects_accepting_undeclared_keys(node: Any, path: str = "") -> list[str]:
+    """Objects in a JSON schema that would accept keys it never declared.
+
+    ``StrictModel``'s ``extra="forbid"`` produces the closed form. A nested
+    model that forgets to inherit it fails here rather than at the API.
+    """
+    found: list[str] = []
+    if not isinstance(node, dict):
+        return found
+    if node.get("type") == "object" and node.get("additionalProperties") is not False:
+        found.append(path or "<root>")
+    for key, value in node.items():
+        if isinstance(value, dict):
+            found += _objects_accepting_undeclared_keys(value, f"{path}.{key}")
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                found += _objects_accepting_undeclared_keys(item, f"{path}.{key}[{index}]")
+    return found
 
 
 def test_reregistering_the_same_version_is_refused() -> None:
@@ -215,7 +269,7 @@ def test_successful_run_records_job_and_usage(organization: Any) -> None:
 
     job = result.job
     assert job.status == AIJobStatus.SUCCEEDED
-    assert job.prompt_pin == "_test_tiny@1"
+    assert job.prompt_pin == "_test_tiny@1g2"
     assert job.model_id == resolve_model(Tier.CHEAP).model_id
     assert job.input_tokens == 1200
     assert job.cache_read_tokens == 800
@@ -227,7 +281,7 @@ def test_successful_run_records_job_and_usage(organization: Any) -> None:
         usage = UsageRecord.objects.get(pk=job.usage_record_id)
     assert usage.metric == "ai.tokens"
     assert usage.currency == "USD"
-    assert usage.metadata["prompt"] == "_test_tiny@1"
+    assert usage.metadata["prompt"] == "_test_tiny@1g2"
 
 
 @pytest.mark.django_db
@@ -385,3 +439,38 @@ def test_wrap_untrusted_marks_both_ends() -> None:
     assert wrapped.startswith(UNTRUSTED_HEADER)
     assert wrapped.endswith("--- END UNTRUSTED CONTENT ---")
     assert "payload" in wrapped
+
+
+@pytest.mark.django_db
+def test_a_job_is_never_left_pending_by_an_unexpected_exception(organization: Any) -> None:
+    """Found by the live suite, and worse than the bug that caused it.
+
+    A vendor SDK validated the response inside its own client and raised a
+    Pydantic error -- which is in no provider's exception hierarchy. The
+    runner only caught ``AIProviderError``, so the exception escaped and the
+    job row stayed PENDING: no failure recorded, nothing to alert on, and a
+    status claiming "in progress" about a call that ended minutes earlier.
+
+    The exception is still raised, because an unclassified failure is a bug in
+    the provider adapter and should be loud. The ledger is made honest first.
+    """
+    from apps.ai.models import AIJob, AIJobStatus
+
+    class Rogue:
+        name = "rogue"
+
+        def complete(self, request: Any, *, spec: Any) -> Any:
+            raise ZeroDivisionError("something nobody classified")
+
+    with pytest.raises(ZeroDivisionError):
+        run_prompt(
+            organization=organization,
+            prompt=TINY_PROMPT,
+            user_content="x",
+            provider=Rogue(),
+        )
+
+    job = AIJob.all_objects.get()
+    assert job.status == AIJobStatus.FAILED
+    assert "ZeroDivisionError" in job.error_reason
+    assert job.attempts == 1

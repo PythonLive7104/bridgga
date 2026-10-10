@@ -22,8 +22,13 @@ from django.utils import timezone
 from pydantic import BaseModel
 
 from apps.ai.models import AIJob, AIJobStatus
-from apps.ai.pricing import Tier, micro_usd_to_minor_units, resolve_model
-from apps.ai.prompts import Prompt, get_prompt
+from apps.ai.pricing import (
+    Tier,
+    micro_usd_to_minor_units,
+    reasoning_effort_for,
+    resolve_model,
+)
+from apps.ai.prompts import GUARDRAILS_VERSION, Prompt, get_prompt
 from apps.ai.providers.base import (
     AIOutputInvalid,
     AIProvider,
@@ -90,6 +95,9 @@ def build_completion_request(
         ),
         output_schema=prompt.output_schema,
         max_output_tokens=prompt.max_output_tokens,
+        # How hard to think is a property of what the call is for, not of the
+        # text, so it comes from the tier the prompt declared.
+        reasoning_effort=reasoning_effort_for(prompt.tier),
     )
 
 
@@ -138,6 +146,7 @@ def run_prompt(
             feature=feature,
             prompt_name=prompt.name,
             prompt_version=prompt.version,
+            guardrails_version=GUARDRAILS_VERSION,
             provider=provider.name,
             model_id=spec.model_id,
             tier=str(prompt.tier),
@@ -180,6 +189,23 @@ def run_prompt(
                     "Return output matching the required schema exactly."
                 )
                 continue
+            except Exception as exc:
+                # A provider raised something outside the AIProviderError
+                # contract. Without this the job row stays PENDING for ever:
+                # no failure recorded, nothing to alert on, and a status that
+                # says "in progress" about a call that ended minutes ago.
+                #
+                # It happened. A vendor SDK validated the response inside its
+                # own client and raised a Pydantic error, which is in no
+                # provider's exception hierarchy. Re-raised rather than
+                # swallowed, because an unclassified failure is a bug in the
+                # provider adapter and should be loud -- but the ledger is
+                # made honest first.
+                _finish_failure(job, AIJobStatus.FAILED, f"{type(exc).__name__}: {exc}")
+                logger.exception(
+                    "ai_job_unclassified_failure", feature=feature, error=type(exc).__name__
+                )
+                raise
 
             _record_success(job, response, spec)
             return AgentResult(output=response.parsed, job=job)
@@ -211,6 +237,7 @@ def _record_success(job: AIJob, response: Any, spec: Any) -> None:
             "prompt": job.prompt_pin,
             "cache_read_tokens": usage.cache_read_tokens,
             "cache_write_tokens": usage.cache_write_tokens,
+            "reasoning_tokens": usage.reasoning_tokens,
             "cost_micro_usd": cost_micro,
         },
     )
@@ -220,6 +247,7 @@ def _record_success(job: AIJob, response: Any, spec: Any) -> None:
     job.output_tokens = usage.output_tokens
     job.cache_read_tokens = usage.cache_read_tokens
     job.cache_write_tokens = usage.cache_write_tokens
+    job.reasoning_tokens = usage.reasoning_tokens
     job.cost_micro_usd = cost_micro
     job.latency_ms = response.latency_ms
     job.output = response.parsed.model_dump(mode="json")
@@ -233,6 +261,7 @@ def _record_success(job: AIJob, response: Any, spec: Any) -> None:
         model=job.model_id,
         cost_micro_usd=cost_micro,
         cache_read_tokens=usage.cache_read_tokens,
+        reasoning_tokens=usage.reasoning_tokens,
     )
 
 

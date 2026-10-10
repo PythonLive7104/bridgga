@@ -76,7 +76,7 @@ def _no_accidental_spend(request: Any) -> Iterator[None]:
         reset_provider_cache()
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def live_provider() -> Any:
     """The real configured provider, for a ``live_ai`` test.
 

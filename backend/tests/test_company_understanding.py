@@ -160,13 +160,15 @@ def test_source_text_omits_pages_that_failed_to_fetch(organization: Any) -> None
 def test_output_populates_the_profile(organization: Any) -> None:
     profile = agents.get_or_create_profile(organization=organization)
 
-    agents.apply_ai_output(profile=profile, output=profile_output(), prompt_pin="company_profile@2")
+    agents.apply_ai_output(
+        profile=profile, output=profile_output(), prompt_pin="company_profile@2g2"
+    )
 
     profile.refresh_from_db()
     assert profile.company_name == "Harmattan Fleet"
     assert profile.products == ["Fleet Live", "Fuel Guard"]
     assert profile.status == ProfileStatus.READY
-    assert profile.prompt_pin == "company_profile@2"
+    assert profile.prompt_pin == "company_profile@2g2"
     assert profile.last_analyzed_at is not None
 
 

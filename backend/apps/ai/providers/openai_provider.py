@@ -24,6 +24,7 @@ import time
 from typing import Any
 
 import structlog
+from pydantic import ValidationError
 
 from apps.ai.pricing import ModelSpec
 from apps.ai.providers.base import (
@@ -40,6 +41,11 @@ from apps.ai.providers.base import (
 )
 
 logger = structlog.get_logger(__name__)
+
+#: Tokens added to the answer budget on a reasoning model, to be spent
+#: thinking. Generous: the failure it prevents is a truncated response that
+#: costs a full retry, and unused allowance is not billed.
+REASONING_ALLOWANCE = 4_000
 
 #: Markers OpenAI uses for "out of credit" rather than "too many requests".
 #: Matched on the error body's type and code, with the message as a fallback
@@ -81,8 +87,11 @@ class OpenAIProvider(AIProvider):
         import openai
 
         instructions = self._build_instructions(request)
-        max_output_tokens = min(request.max_output_tokens, spec.max_output_tokens)
         started = time.monotonic()
+
+        extra: dict[str, Any] = {}
+        if spec.supports_reasoning and request.reasoning_effort:
+            extra["reasoning"] = {"effort": request.reasoning_effort}
 
         try:
             response = self.client.responses.parse(
@@ -90,11 +99,20 @@ class OpenAIProvider(AIProvider):
                 instructions=instructions,
                 input=request.user_content,
                 text_format=request.output_schema,
-                max_output_tokens=max_output_tokens,
+                max_output_tokens=self._output_budget(request, spec),
                 # Groups requests sharing a prefix so they hit the same cache.
                 # Derived from the instructions, which are the stable part.
                 prompt_cache_key=self._cache_key(instructions),
+                **extra,
             )
+        except ValidationError as exc:
+            # The SDK validates the response against the schema inside
+            # `.parse()`, so a truncated or malformed body arrives here as a
+            # Pydantic error rather than as anything in openai's hierarchy.
+            # Left uncaught it escapes the whole AIProviderError contract: no
+            # retry, and the runner's job row stays PENDING forever. It is a
+            # schema failure like any other, so it is reported as one.
+            raise AIOutputInvalid(f"Model output did not match the schema: {exc}") from exc
         except openai.RateLimitError as exc:
             # 429 covers two different problems. `insufficient_quota` means
             # the account has no credit left, and no amount of backoff will
@@ -142,6 +160,23 @@ class OpenAIProvider(AIProvider):
         It is labelled an estimate in the UI for exactly this reason.
         """
         return super().count_tokens(request, spec=spec)
+
+    @staticmethod
+    def _output_budget(request: CompletionRequest, spec: ModelSpec) -> int:
+        """Room for the answer, plus room to think about it.
+
+        ``max_output_tokens`` on the request is the budget for the *answer*.
+        A reasoning model spends output tokens thinking first and the cap
+        covers both, so passing the answer budget straight through starves
+        the answer: a reply classification with a 1,000-token budget spent 768
+        of them reasoning and truncated its own JSON mid-string. Intermittently
+        -- which is how it survived every mocked test and only appeared
+        against the live API.
+        """
+        budget = request.max_output_tokens
+        if spec.supports_reasoning:
+            budget += REASONING_ALLOWANCE
+        return min(budget, spec.max_output_tokens)
 
     @staticmethod
     def _build_instructions(request: CompletionRequest) -> str:
@@ -197,6 +232,13 @@ class OpenAIProvider(AIProvider):
         cached = int(getattr(details, "cached_tokens", 0) or 0)
         cache_written = int(getattr(details, "cache_write_tokens", 0) or 0)
 
+        # Reasoning tokens are reported *inside* output_tokens and billed at
+        # the output rate, so this is recorded for visibility and never added
+        # to the total. On a cheap classification they can be 85% of the
+        # output, which is worth being able to see in the ledger.
+        output_details = getattr(usage, "output_tokens_details", None)
+        reasoning = int(getattr(output_details, "reasoning_tokens", 0) or 0)
+
         total_input = int(getattr(usage, "input_tokens", 0) or 0)
         # OpenAI's input_tokens includes the cached portion. Subtract it so the
         # shared cost maths prices fresh and cached input separately, and never
@@ -208,4 +250,5 @@ class OpenAIProvider(AIProvider):
             output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
             cache_read_tokens=cached,
             cache_write_tokens=cache_written,
+            reasoning_tokens=reasoning,
         )

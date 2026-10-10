@@ -411,7 +411,7 @@ def _stub_result(output: Any) -> Any:
     """Minimal stand-in for what ``run_prompt`` returns."""
 
     class _Job:
-        prompt_pin = "icp_draft@2"
+        prompt_pin = "icp_draft@2g2"
 
     class _Result:
         def __init__(self) -> None:

@@ -181,7 +181,9 @@ def _store(
                     "score": entry.score,
                     "rank": position,
                     "reasoning": entry.reasoning,
-                    "factors": entry.factors,
+                    # Stored as a mapping, as it always was; the schema
+                    # names the keys now so the model cannot invent them.
+                    "factors": entry.factors.model_dump(mode="json"),
                     "recommended_channels": channels,
                     "cautions": entry.cautions,
                     "prompt_pin": prompt_pin,

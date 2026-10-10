@@ -78,6 +78,10 @@ class TokenUsage:
     output_tokens: int = 0
     cache_write_tokens: int = 0
     cache_read_tokens: int = 0
+    #: Thinking tokens, which vendors bill as output and report *inside*
+    #: ``output_tokens``. Recorded separately for cost analysis and excluded
+    #: from the total, because adding it would bill the same tokens twice.
+    reasoning_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -111,7 +115,14 @@ class CompletionRequest:
     user_content: str
     output_schema: type[BaseModel]
     cacheable_context: str = ""
+    #: Budget for the *answer*. A provider whose model reasons before
+    #: answering adds its own allowance on top, because reasoning tokens are
+    #: billed as output and would otherwise eat the answer -- which is not
+    #: something every prompt author should have to know.
     max_output_tokens: int = 8_000
+    #: "low", "medium", "high" or "" for the vendor default. Set from the
+    #: prompt's tier; ignored by providers whose models do not reason.
+    reasoning_effort: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

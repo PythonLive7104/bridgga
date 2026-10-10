@@ -219,6 +219,35 @@ class MarketFitBand(StrEnum):
     LOW = "low"
 
 
+class MarketFactors(StrictModel):
+    """The nine factors PRD section 28 weighs, each as its own field.
+
+    Named fields rather than a free-form mapping, for two reasons and one
+    hard constraint.
+
+    The constraint found the bug: OpenAI's structured output refuses a schema
+    containing an open-ended object, so ``dict[str, str]`` is rejected at the
+    API with a 400 before the model ever runs. Every test passed, because the
+    stub provider does not validate schemas -- only a live call could find
+    it. A free-form mapping is unusable here whatever else it has going for
+    it.
+
+    The reasons it is better anyway: the vocabulary closes, so a factor cannot
+    be silently renamed or dropped between runs, and the interface can label
+    each one without guessing at keys.
+    """
+
+    product_fit: str = ""
+    company_density: str = ""
+    industry_density: str = ""
+    estimated_demand: str = ""
+    competition: str = ""
+    communication: str = ""
+    regulatory: str = ""
+    language: str = ""
+    purchasing_power: str = ""
+
+
 class MarketRecommendation(StrictModel):
     """One country, judged for one company (PRD section 28)."""
 
@@ -231,15 +260,9 @@ class MarketRecommendation(StrictModel):
         max_length=800,
         description="Why this country, for this company. Section 28 requires it.",
     )
-    # The section 28 factors, scored individually, so a reader can see which
-    # ones carried the judgement instead of only the conclusion.
-    factors: dict[str, str] = Field(
-        default_factory=dict,
-        description=(
-            "Short verdict per factor: product_fit, company_density, industry_density, "
-            "estimated_demand, competition, communication, regulatory, language, "
-            "purchasing_power."
-        ),
+    factors: MarketFactors = Field(
+        default_factory=lambda: MarketFactors(),
+        description="A short verdict on each of the section 28 factors.",
     )
     recommended_channels: list[str] = Field(
         default_factory=list,

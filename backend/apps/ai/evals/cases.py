@@ -47,6 +47,21 @@ class Expectation(Protocol):
     def check(self, output: BaseModel, case: EvalCase) -> CheckResult: ...
 
 
+def flatten(text: str) -> str:
+    """Normalise text for quote matching: lowercase, whitespace collapsed.
+
+    Every grounding check in this module compares through here, and the reason
+    is a false failure the live suite produced. The fixtures are hard-wrapped
+    prose, so a sentence in the source contains a newline the model does not
+    reproduce when it quotes it back. A plain substring comparison called that
+    a fabrication -- on a quote that was word-for-word correct.
+
+    A false failure in an eval set is worse than a missing check. It teaches
+    whoever reads the report that red means nothing.
+    """
+    return re.sub(r"\s+", " ", (text or "")).strip().lower()
+
+
 def read_path(output: BaseModel, path: str) -> Any:
     """Read a dotted path, e.g. ``buyer.job_titles``."""
     value: Any = output
@@ -144,12 +159,12 @@ class Grounded:
         if actual in (None, "", [], {}):
             return CheckResult.ok("nothing claimed")
 
-        haystack = case.source_text().lower()
+        haystack = flatten(case.source_text())
         items = actual if isinstance(actual, (list, tuple, set)) else [actual]
 
         ungrounded: list[str] = []
         for item in items:
-            text = str(item).strip().lower()
+            text = flatten(str(item))
             if not text:
                 continue
             if text in haystack:
@@ -175,11 +190,11 @@ class EvidenceGrounded:
 
     def check(self, output: BaseModel, case: EvalCase) -> CheckResult:
         entries = read_path(output, self.path) or []
-        haystack = case.source_text().lower()
+        haystack = flatten(case.source_text())
 
         problems: list[str] = []
         for entry in entries:
-            quote = (getattr(entry, "quote", "") or "").strip().lower()
+            quote = flatten(getattr(entry, "quote", "") or "")
             url = (getattr(entry, "source_url", "") or "").strip().lower()
             if quote and quote not in haystack:
                 problems.append(f"quote not in source: {quote[:60]!r}")
@@ -250,12 +265,12 @@ class ItemEvidenceGrounded:
     name: str = "item_evidence_grounded"
 
     def check(self, output: BaseModel, case: EvalCase) -> CheckResult:
-        haystack = re.sub(r"\s+", " ", case.source_text().lower())
+        haystack = flatten(case.source_text())
         problems: list[str] = []
 
         for item in read_path(output, self.path) or []:
             quotes = [
-                re.sub(r"\s+", " ", (getattr(entry, "quote", "") or "").strip().lower())
+                flatten(getattr(entry, "quote", "") or "")
                 for entry in (getattr(item, "evidence", None) or [])
             ]
             usable = [quote for quote in quotes if len(quote) >= 12]
@@ -284,13 +299,11 @@ class ItemQuotesSource:
     name: str = "item_quotes_source"
 
     def check(self, output: BaseModel, case: EvalCase) -> CheckResult:
-        haystack = re.sub(r"\s+", " ", case.source_text().lower())
+        haystack = flatten(case.source_text())
         problems: list[str] = []
 
         for item in read_path(output, self.path) or []:
-            quote = re.sub(
-                r"\s+", " ", str(read_path(item, self.quote_field) or "").strip().lower()
-            )
+            quote = flatten(str(read_path(item, self.quote_field) or ""))
             if len(quote) < self.min_length:
                 problems.append(f"no usable quote on {read_path(item, 'point')!r}")
             elif quote not in haystack:

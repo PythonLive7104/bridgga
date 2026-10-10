@@ -998,7 +998,7 @@ def test_an_interpretation_is_billed_to_the_organization(organization: Any, comp
     assert job is not None
     assert job.status == AIJobStatus.SUCCEEDED
     assert job.organization_id == organization.pk
-    assert job.prompt_pin == "signal_interpretation@1"
+    assert job.prompt_pin == "signal_interpretation@2g2"
 
 
 def test_a_model_failure_leaves_no_signals_and_no_exception(

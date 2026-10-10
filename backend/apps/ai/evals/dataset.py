@@ -75,7 +75,13 @@ register_case(
             Grounded("geographies"),
             Grounded("target_customers"),
             EvidenceGrounded(),
-            FieldContains("industry", "logistics"),
+            # Deliberately not FieldContains("industry", "logistics"): this
+            # company *sells to* logistics operators, so "telematics" is the
+            # better answer and demanding the customer's industry rewarded a
+            # vaguer one. What matters is that the industry came from the
+            # page rather than from the model's imagination.
+            FieldNotEmpty("industry"),
+            Grounded("industry"),
         ],
     )
 )

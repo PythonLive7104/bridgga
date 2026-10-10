@@ -17,6 +17,7 @@ import pytest
 from apps.ai.providers.stub import StubProvider
 from apps.ai.schemas import (
     Confidence,
+    MarketFactors,
     MarketFitBand,
     MarketRecommendations,
 )
@@ -77,7 +78,7 @@ def recommendations(*entries: tuple[str, str, int]) -> MarketRecommendations:
                 fit=MarketFitBand(fit),
                 score=score,
                 reasoning=f"Reasoning for {code}.",
-                factors={"product_fit": "strong"},
+                factors=MarketFactors(product_fit="strong"),
                 recommended_channels=["email", "whatsapp"],
             )
             for code, fit, score in entries
