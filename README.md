@@ -22,8 +22,13 @@ with configurable weights and a per-component explanation, and the research
 agent with the evidence-verified reason-to-contact, and the website sales
 audit -- which runs for anybody, with no account, at
 `/tools/website-audit` -- and the onboarding wizard that strings the five
-buildable steps of section 25 together. **Phase 2 is complete.** Next: Phase 3,
-acquisition. No campaigns yet.
+buildable steps of section 25 together. **Phase 2 is complete.**
+
+Phase 3 has begun with the compliance core (sections 62-63): suppression by
+hash so erasure and opt-out can both be honoured, a send guard that fails
+closed, never-expiring one-click unsubscribe links, consent records and the
+regional policy table. No campaigns yet -- that is next, and it is built on
+top of this rather than beside it.
 
 ---
 

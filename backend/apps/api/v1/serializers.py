@@ -20,6 +20,13 @@ from apps.ai.schemas import SignalType
 from apps.audit.models import AuditLog
 from apps.billing.models import CreditEntry, Plan, Subscription
 from apps.companies.models import Company, CompanyEvent, LeadSignal, SavedSearch
+from apps.compliance.models import (
+    ConsentBasis,
+    RegionalPolicy,
+    SuppressionEntry,
+    SuppressionReason,
+    SuppressionScope,
+)
 from apps.contacts.models import Person
 from apps.intelligence.models import (
     ICP,
@@ -646,6 +653,120 @@ class ProspectResearchSerializer(serializers.ModelSerializer):
 
     def get_source_signal_count(self, obj: ProspectResearch) -> int:
         return obj.source_signals.count()
+
+
+class SuppressionEntrySerializer(serializers.ModelSerializer):
+    """One row of the suppression list (PRD section 63).
+
+    ``value`` is returned in full here, unlike on the public unsubscribe page:
+    this is the customer's own list, and a suppression list you cannot read is
+    one you cannot check before a campaign. A redacted entry shows nothing,
+    because the address was erased on request and the hash is all that remains.
+    """
+
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    is_removable = serializers.BooleanField(read_only=True)
+    is_redacted = serializers.BooleanField(read_only=True)
+    added_by = serializers.CharField(source="created_by.email", read_only=True, default=None)
+
+    class Meta:
+        model = SuppressionEntry
+        fields = [
+            "id",
+            "kind",
+            "value",
+            "scope",
+            "reason",
+            "source",
+            "notes",
+            "suppressed_at",
+            "is_removable",
+            "is_redacted",
+            "added_by",
+            "evidence",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class SuppressionCreateSerializer(serializers.Serializer):
+    address = serializers.CharField(max_length=320)
+    scope = serializers.ChoiceField(choices=SuppressionScope.choices, default=SuppressionScope.ALL)
+    # Deliberately a narrow set. `unsubscribed` and `complained` record what a
+    # person did and are written by the unsubscribe route and the webhook
+    # handlers; an operator adding a row by hand is doing something else, and
+    # letting them pick those labels would make the list's history unreliable.
+    reason = serializers.ChoiceField(
+        choices=[
+            (SuppressionReason.MANUAL, "Added by hand"),
+            (SuppressionReason.IMPORTED, "Imported"),
+            (SuppressionReason.LEGAL_REQUEST, "Legal or erasure request"),
+        ],
+        default=SuppressionReason.MANUAL,
+    )
+    notes = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+
+class SuppressionImportSerializer(serializers.Serializer):
+    # Blanks are allowed through on purpose and counted as skipped by the
+    # service. A ten-thousand-row suppression list with one empty line in it
+    # must not be rejected whole: the rows that parse are exactly the ones
+    # somebody is relying on not to be contacted.
+    addresses = serializers.ListField(
+        child=serializers.CharField(max_length=320, allow_blank=True),
+        allow_empty=False,
+        max_length=10_000,
+    )
+
+
+class ConsentRecordSerializer(serializers.Serializer):
+    address = serializers.CharField(max_length=320)
+    basis = serializers.ChoiceField(
+        choices=ConsentBasis.choices, default=ConsentBasis.LEGITIMATE_INTEREST
+    )
+    source = serializers.CharField(max_length=200, required=False, allow_blank=True)
+    evidence = serializers.CharField(required=False, allow_blank=True)
+    country = serializers.CharField(max_length=2, required=False, allow_blank=True)
+
+
+class RegionalPolicySerializer(serializers.ModelSerializer):
+    """What a market requires, and what that means in practice."""
+
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    requirements = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RegionalPolicy
+        fields = [
+            "id",
+            "code",
+            "name",
+            "law",
+            "b2b_requires_prior_consent",
+            "opt_out_required",
+            "sender_identity_required",
+            "postal_address_required",
+            "opt_out_honoured_within_days",
+            "max_retention_days",
+            "requirements",
+            "notes",
+        ]
+        read_only_fields = fields
+
+    @extend_schema_field({"type": "array", "items": {"type": "string"}})
+    def get_requirements(self, obj: RegionalPolicy) -> list[str]:
+        return obj.requirements()
+
+
+class UnsubscribeSerializer(serializers.Serializer):
+    """Optional detail from the unsubscribe page. Never required.
+
+    A reason box is useful feedback and must never be a condition of leaving:
+    the opt-out has to work on the first click, which is also what RFC 8058
+    requires of the one-click POST.
+    """
+
+    reason = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
 
 class WebsiteAuditRequestSerializer(serializers.Serializer):

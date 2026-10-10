@@ -121,6 +121,7 @@ LOCAL_APPS = [
     "apps.companies",
     "apps.contacts",
     "apps.leads",
+    "apps.compliance",
     "apps.ai",
     "apps.audit",
     "apps.billing",

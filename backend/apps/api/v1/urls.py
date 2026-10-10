@@ -33,6 +33,8 @@ router.register("leads/imports", views.ImportJobViewSet, basename="importjob")
 router.register("prospects", views.ProspectViewSet, basename="prospect")
 router.register("signals", views.SignalViewSet, basename="leadsignal")
 router.register("saved-searches", views.SavedSearchViewSet, basename="savedsearch")
+router.register("compliance/suppressions", views.SuppressionViewSet, basename="suppressionentry")
+router.register("compliance/policies", views.RegionalPolicyViewSet, basename="regionalpolicy")
 
 urlpatterns = [
     path("me", views.MeView.as_view(), name="me"),
@@ -76,6 +78,9 @@ urlpatterns = [
     path("scoring/profile", views.ScoringProfileView.as_view(), name="scoring-profile"),
     # Where a customer has got to in the section 25 path. Derived from the
     # records, so it cannot go stale.
+    # Reached from an email client by somebody who is not signed in. The
+    # signed token is the whole of the authorisation (PRD section 63).
+    path("unsubscribe/<str:token>", views.UnsubscribeView.as_view(), name="unsubscribe"),
     path("onboarding", views.OnboardingView.as_view(), name="onboarding"),
     path("billing/subscription", views.SubscriptionView.as_view(), name="subscription"),
     path("billing/balance", views.CreditBalanceView.as_view(), name="credit-balance"),

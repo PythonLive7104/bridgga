@@ -28,6 +28,9 @@ from apps.common.viewsets import TenantReadOnlyViewSet, TenantScopedViewSet
 from apps.companies import search, signal_engine
 from apps.companies import tasks as company_tasks
 from apps.companies.models import Company, LeadSignal, SavedSearch
+from apps.compliance import services as compliance_services
+from apps.compliance import tokens as unsubscribe_tokens
+from apps.compliance.models import RegionalPolicy, SuppressionEntry, SuppressionReason
 from apps.intelligence import (
     agents,
     audit_agents,
@@ -376,6 +379,223 @@ class OnboardingView(APIView):
         """
         organization = onboarding_state.mark_complete(request.organization)
         return Response(onboarding_state.onboarding_state(organization).as_dict())
+
+
+class UnsubscribeView(APIView):
+    """The opt-out (PRD sections 62 and 63).
+
+    **Open, by necessity.** It is reached from an email client by somebody who
+    may not have an account and certainly is not signed in. The signed token
+    is the whole of the authorisation, and it names only the address that
+    already received the message.
+
+    ``GET`` describes who is about to be unsubscribed so the page can confirm
+    it. ``POST`` does it, and does it on the first call: RFC 8058's one-click
+    header posts here directly with no confirmation step, which is what
+    mailbox providers test and what makes the Gmail unsubscribe button work.
+
+    Both are deliberately quiet about failure. An invalid token gets the same
+    answer as a valid one on POST, because a public endpoint that says "no
+    such recipient" is an address-checking oracle.
+    """
+
+    # No authentication classes, which also means no CSRF enforcement, and
+    # that is required rather than overlooked: RFC 8058's one-click POST comes
+    # from a mailbox provider's servers and carries no cookie and no token.
+    # The exposure is bounded by what the endpoint can do -- somebody holding
+    # a signed token can stop mail reaching the address in it, and nothing
+    # else. That is the safe direction for this particular verb.
+    authentication_classes: list = []
+    permission_classes: list = []
+    throttle_classes = [AnonBurstThrottle]
+
+    @extend_schema(responses={200: {"type": "object"}}, auth=[])
+    def get(self, request: Request, token: str) -> Response:
+        payload = unsubscribe_tokens.read_token(token)
+        if payload is None:
+            return Response({"valid": False}, status=status.HTTP_404_NOT_FOUND)
+
+        organization = self._organization(payload)
+        address = payload["address"]
+        local, _, domain = address.partition("@")
+        already = False
+        if organization is not None:
+            from apps.compliance.guard import is_suppressed
+
+            already = is_suppressed(organization=organization, address=address)
+
+        return Response(
+            {
+                "valid": True,
+                # Masked: whoever holds this link may not be the person it was
+                # sent to, and the page only has to confirm the right address.
+                "address": f"{local[:1]}***@{domain}" if domain else "",
+                "organization": organization.name if organization else "",
+                "already_unsubscribed": already,
+            }
+        )
+
+    @extend_schema(request=s.UnsubscribeSerializer, responses={200: {"type": "object"}}, auth=[])
+    def post(self, request: Request, token: str) -> Response:
+        payload = unsubscribe_tokens.read_token(token)
+        if payload is None:
+            # Same shape as success. A different answer here would let anybody
+            # test addresses against the signing key.
+            return Response({"unsubscribed": True})
+
+        organization = self._organization(payload)
+        if organization is None:
+            return Response({"unsubscribed": True})
+
+        serializer = s.UnsubscribeSerializer(data=request.data or {})
+        serializer.is_valid(raise_exception=True)
+
+        compliance_services.suppress(
+            organization=organization,
+            address=payload["address"],
+            reason=SuppressionReason.UNSUBSCRIBED,
+            source="unsubscribe_link",
+            notes=serializer.validated_data.get("reason", "")[:255],
+            evidence={key: payload[key] for key in ("message", "campaign") if payload.get(key)},
+        )
+        return Response({"unsubscribed": True, "organization": organization.name})
+
+    @staticmethod
+    def _organization(payload: dict) -> Any:
+        from apps.organizations.models import Organization
+
+        with unscoped():
+            return Organization.objects.filter(public_id=payload["organization"]).first()
+
+
+class SuppressionViewSet(TenantScopedViewSet):
+    """The customer's own suppression list (PRD section 63).
+
+    Readable by anyone who can see prospects -- a rep about to write to
+    somebody should be able to find out why they cannot -- and writable only
+    with the compliance capability.
+
+    Entries recording a person's own decision cannot be deleted. See
+    ``SuppressionEntry.is_removable``: a button that removes an unsubscribe
+    has exactly one use.
+    """
+
+    queryset = SuppressionEntry.objects.all()
+    serializer_class = s.SuppressionEntrySerializer
+    required_capability = Capability.PROSPECT_VIEW
+    write_capability = Capability.COMPLIANCE_MANAGE
+    search_fields = ["value", "notes"]
+
+    def get_base_queryset(self) -> Any:
+        return SuppressionEntry.all_objects.select_related("created_by")
+
+    @extend_schema(
+        request=s.SuppressionCreateSerializer, responses={201: s.SuppressionEntrySerializer}
+    )
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = s.SuppressionCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        entry = compliance_services.suppress(
+            organization=request.organization,
+            address=serializer.validated_data["address"],
+            reason=serializer.validated_data["reason"],
+            scope=serializer.validated_data["scope"],
+            source="api",
+            created_by=request.user,
+            notes=serializer.validated_data.get("notes", ""),
+        )
+        record_audit(
+            organization=request.organization,
+            action=AuditAction.SUPPRESSION_ADDED,
+            actor=request.user,
+            target=entry,
+            metadata={"reason": entry.reason, "scope": entry.scope},
+            request=request,
+        )
+        return Response(s.SuppressionEntrySerializer(entry).data, status=status.HTTP_201_CREATED)
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        entry = self.get_object()
+        if not compliance_services.unsuppress(entry=entry, actor=request.user):
+            raise ValidationError(
+                {
+                    "detail": [
+                        "This entry records the person's own decision and cannot be "
+                        "removed. Only a manual or imported entry can."
+                    ]
+                }
+            )
+        record_audit(
+            organization=request.organization,
+            action=AuditAction.SUPPRESSION_REMOVED,
+            actor=request.user,
+            metadata={"reason": entry.reason},
+            request=request,
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(request=s.SuppressionImportSerializer, responses={200: {"type": "object"}})
+    @action(detail=False, methods=["post"], url_path="import")
+    def bulk_import(self, request: Request) -> Response:
+        """Bring an existing list across. The first thing a switcher needs."""
+        serializer = s.SuppressionImportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        result = compliance_services.import_suppressions(
+            organization=request.organization,
+            addresses=serializer.validated_data["addresses"],
+            created_by=request.user,
+        )
+        record_audit(
+            organization=request.organization,
+            action=AuditAction.SUPPRESSION_ADDED,
+            actor=request.user,
+            metadata=result,
+            request=request,
+        )
+        return Response(result)
+
+    @extend_schema(request=s.SuppressionCreateSerializer, responses={200: {"type": "object"}})
+    @action(detail=False, methods=["post"], url_path="erase")
+    def erase(self, request: Request) -> Response:
+        """Honour an erasure request (PRD sections 62, 63, 120).
+
+        Suppresses first, then redacts. The order matters: the reverse leaves
+        a window in which the person is deleted and therefore unrecognised,
+        which is the one outcome section 63 is written to prevent.
+        """
+        serializer = s.SuppressionCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        result = compliance_services.erase(
+            organization=request.organization,
+            address=serializer.validated_data["address"],
+            actor=request.user,
+        )
+        record_audit(
+            organization=request.organization,
+            action=AuditAction.DATA_ERASED,
+            actor=request.user,
+            metadata=result,
+            request=request,
+        )
+        return Response(result)
+
+
+class RegionalPolicyViewSet(viewsets.ReadOnlyModelViewSet):
+    """What each market requires (PRD section 62).
+
+    Platform reference data, like the country profiles: the rules of Nigeria
+    are the same for every customer.
+    """
+
+    queryset = RegionalPolicy.objects.all()
+    serializer_class = s.RegionalPolicySerializer
+    permission_classes = [RequireOrganization, HasCapability]
+    required_capability = Capability.ORG_VIEW
+    lookup_field = "code"
+    lookup_url_kwarg = "code"
 
 
 class WebsiteAuditView(APIView):

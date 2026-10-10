@@ -59,6 +59,11 @@ class AuditAction(models.TextChoices):
     SIGNAL_DISMISSED = "signal_dismissed", _("Buying signal dismissed")
     SCORING_WEIGHTS_CHANGED = "scoring_weights_changed", _("Scoring weights changed")
 
+    SUPPRESSION_ADDED = "suppression_added", _("Suppression added")
+    SUPPRESSION_REMOVED = "suppression_removed", _("Suppression removed")
+    DATA_ERASED = "data_erased", _("Personal data erased")
+    CONSENT_RECORDED = "consent_recorded", _("Consent recorded")
+
     CAMPAIGN_LAUNCHED = "campaign_launched", _("Campaign launched")
     CAMPAIGN_PAUSED = "campaign_paused", _("Campaign paused")
     AUTOPILOT_ENABLED = "autopilot_enabled", _("AI autopilot enabled")
