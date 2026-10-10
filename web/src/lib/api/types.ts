@@ -468,3 +468,54 @@ export interface SavedSearch {
   last_result_count: number;
   created_at: string;
 }
+
+/** One measured check from the website audit (PRD section 49). */
+export interface WebsiteAuditCheck {
+  id: string;
+  dimension: string;
+  passed: boolean;
+  weight: number;
+  detail: string;
+  /** Populated only on a failure: what to do about it. */
+  fix: string;
+}
+
+export interface WebsiteAuditRecommendation {
+  title: string;
+  detail: string;
+  dimension: string;
+  impact: string;
+  effort: string;
+}
+
+export interface WebsiteAuditObservation {
+  label: string;
+  value: string;
+  note: string;
+}
+
+export interface WebsiteAudit {
+  id: string;
+  url: string;
+  final_url: string;
+  domain: string;
+  status: string;
+  error_reason: string;
+  overall_score: number;
+  band: string;
+  scores: Record<string, number>;
+  checks: WebsiteAuditCheck[];
+  failed_checks: WebsiteAuditCheck[];
+  performance: WebsiteAuditObservation[];
+  recommendations: WebsiteAuditRecommendation[];
+  notes: Record<string, string>;
+  what_they_sell: string;
+  who_its_for: string;
+  confidence: string;
+  /** False when only the measured half ran; three dimensions are then absent. */
+  judged: boolean;
+  page_title: string;
+  page_description: string;
+  fetched_at: string | null;
+  created_at: string;
+}

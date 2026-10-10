@@ -352,6 +352,12 @@ DATA_FRESHNESS_DAYS = int(env("DATA_FRESHNESS_DAYS", "90"))
 # A person asking for one prospect by hand is never gated by this.
 RESEARCH_MIN_SCORE = int(env("RESEARCH_MIN_SCORE", "60"))
 
+# How long a website audit is reused for the same URL (PRD sections 17, 49).
+# The audit is a public endpoint that crawls a site and calls a paid model, so
+# without a window it is a way to spend our money and somebody else's
+# bandwidth one refresh at a time.
+WEBSITE_AUDIT_CACHE_MINUTES = int(env("WEBSITE_AUDIT_CACHE_MINUTES", "60"))
+
 CELERY_TASK_ROUTES = {
     # Declared before the wildcard below, which would otherwise claim it:
     # Celery returns the first matching pattern, and dicts keep insertion

@@ -23,17 +23,26 @@ from apps.billing.models import CreditEntry, Subscription
 from apps.common.pagination import PageNumberPagination
 from apps.common.permissions import HasCapability, RequireOrganization
 from apps.common.tenancy import unscoped
+from apps.common.throttling import AnonBurstThrottle
 from apps.common.viewsets import TenantReadOnlyViewSet, TenantScopedViewSet
 from apps.companies import search, signal_engine
 from apps.companies import tasks as company_tasks
 from apps.companies.models import Company, LeadSignal, SavedSearch
-from apps.intelligence import agents, icp_agents, market_agents, research_agents, tasks
+from apps.intelligence import (
+    agents,
+    audit_agents,
+    icp_agents,
+    market_agents,
+    research_agents,
+    tasks,
+)
 from apps.intelligence.models import (
     ICP,
     CountryProfile,
     MarketRecommendation,
     ProfileStatus,
     ProspectResearch,
+    WebsiteAudit,
     WebsiteSnapshot,
 )
 from apps.leads import importing, scoring
@@ -333,6 +342,74 @@ class AuditLogViewSet(TenantReadOnlyViewSet):
     required_capability = Capability.AUDIT_VIEW
     filterset_fields = ["action", "actor_email"]
     search_fields = ["target_label", "actor_email"]
+
+
+class WebsiteAuditView(APIView):
+    """The website sales audit (PRD sections 49 and 17).
+
+    **Open to anybody.** Section 17 makes this a free acquisition tool, so it
+    has to work for a stranger with no account: that is the whole point of
+    the feature, not an oversight in the permissions.
+
+    What stands in for authentication:
+
+    * the SSRF-hardened fetcher, which is what makes "we will fetch any URL
+      you give us" safe to offer at all (section 109);
+    * an IP-keyed throttle, since there is no organization to key on;
+    * a cache window, so the same URL is not crawled and billed repeatedly;
+    * a ledger entry against a members-only-in-name "public tools"
+      organization, so what the free tool costs is a query rather than a
+      surprise on an invoice.
+
+    A signed-in caller gets the audit attributed to their workspace, which is
+    what makes the same endpoint serve the in-product feature.
+    """
+
+    authentication_classes: list = []
+    permission_classes: list = []
+    throttle_classes = [AnonBurstThrottle]
+
+    @extend_schema(
+        request=s.WebsiteAuditRequestSerializer,
+        responses={200: s.WebsiteAuditSerializer},
+        auth=[],
+    )
+    def post(self, request: Request) -> Response:
+        serializer = s.WebsiteAuditRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user if getattr(request.user, "is_authenticated", False) else None
+        organization = getattr(request, "organization", None)
+
+        audit = audit_agents.run_website_audit(
+            url=serializer.validated_data["url"],
+            organization=organization,
+            requested_by=user,
+            email=serializer.validated_data.get("email", ""),
+        )
+        # 200 even for a failed audit: "that site refused the connection" is
+        # an answer to the question asked, not a client error on this API.
+        return Response(s.WebsiteAuditSerializer(audit).data)
+
+
+class WebsiteAuditDetailView(APIView):
+    """One audit by its public id, which is also its share token.
+
+    Readable by anyone holding the link. That is the access rule the free
+    tool needs -- a result somebody can send to a colleague -- and the id is
+    an unguessable UUID, so having the link is the whole of the permission.
+    """
+
+    authentication_classes: list = []
+    permission_classes: list = []
+    throttle_classes = [AnonBurstThrottle]
+
+    @extend_schema(responses={200: s.WebsiteAuditSerializer}, auth=[])
+    def get(self, request: Request, public_id: str) -> Response:
+        from django.shortcuts import get_object_or_404
+
+        audit = get_object_or_404(WebsiteAudit, public_id=public_id)
+        return Response(s.WebsiteAuditSerializer(audit).data)
 
 
 class ScoringProfileView(APIView):

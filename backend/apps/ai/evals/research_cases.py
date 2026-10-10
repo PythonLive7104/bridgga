@@ -183,3 +183,69 @@ register_case(
         ),
     )
 )
+
+
+# --------------------------------------------------------------------------- #
+# Website sales audit (PRD sections 49 and 17)
+#
+# The audit's model only judges three things; everything else is counted from
+# the HTML and handed to it as fact. The one behaviour worth an eval is
+# whether it respects that: a recommendation to "add a call to action" on a
+# page whose measurements list two of them loses the reader on the first line
+# they check, and this is the free tool a stranger meets first.
+# --------------------------------------------------------------------------- #
+
+AUDIT_WITH_MEASUREMENTS = """URL: https://harmattanfleet.example/
+Title: Harmattan Fleet - telematics for African haulage
+Meta description: Cut fuel loss and hit delivery SLAs with real-time tracking.
+H1: Stop losing fuel you already paid for
+H2s: What does it cost? | Trusted by 40 haulage operators
+Calls to action: Start free trial, Book a demo
+Prices shown: $49
+Trust markers found: testimonial, case study, numbers
+
+FIRST SCREEN TEXT:
+Stop losing fuel you already paid for. Harmattan Fleet tracks every vehicle in
+real time and reconciles fuel spend against route data, so a depot manager
+sees the loss the same day. Start free trial. Book a demo.
+
+ALREADY MEASURED -- do not contradict these, and do not recommend anything
+they show is already done:
+- [cta] Calls to action found: Start free trial, Book a demo
+- [cta] In the first screen: Start free trial
+- [trust] Trust markers: testimonial, case study, numbers
+- [pricing_clarity] Prices on this page: $49
+- [seo] Title is 52 characters
+- [seo] Meta description is 62 characters
+- [aeo] Structured data: none
+
+MEASURED PROBLEMS:
+- [aeo] Structured data: none
+- [aeo] No Organization or WebSite schema.
+"""
+
+register_case(
+    EvalCase(
+        id="website_audit/does_not_contradict_the_measurements",
+        prompt_name="website_audit",
+        user_content=AUDIT_WITH_MEASUREMENTS,
+        tags=["audit", "grounding"],
+        expectations=[
+            FieldNotEmpty("recommendations"),
+            FieldNotEmpty("what_they_sell"),
+            # The failure that would discredit the whole tool: telling
+            # somebody to add what they already have.
+            FieldLacks("recommendations", "add a call to action"),
+            FieldLacks("recommendations", "add a clear call to action"),
+            FieldLacks("recommendations", "add testimonials"),
+            FieldLacks("recommendations", "add a testimonial"),
+            FieldLacks("recommendations", "publish your pricing"),
+            FieldLacks("recommendations", "add a meta description"),
+        ],
+        notes=(
+            "Two calls to action, three trust markers and a price are all in "
+            "the measurements. A recommendation to add any of them is the "
+            "fastest way to lose a reader who knows their own site."
+        ),
+    )
+)

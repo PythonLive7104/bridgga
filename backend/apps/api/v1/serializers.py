@@ -27,6 +27,7 @@ from apps.intelligence.models import (
     CountryProfile,
     MarketRecommendation,
     ProspectResearch,
+    WebsiteAudit,
     WebsiteSnapshot,
 )
 from apps.leads.models import ImportJob, ScoringProfile
@@ -645,6 +646,65 @@ class ProspectResearchSerializer(serializers.ModelSerializer):
 
     def get_source_signal_count(self, obj: ProspectResearch) -> int:
         return obj.source_signals.count()
+
+
+class WebsiteAuditRequestSerializer(serializers.Serializer):
+    """What a stranger submits (PRD sections 17, 49)."""
+
+    url = serializers.CharField(max_length=2048)
+    # Section 17's "optional signup". Optional means the audit runs and is
+    # shown in full without it; it is not a gate.
+    email = serializers.EmailField(required=False, allow_blank=True)
+
+
+class WebsiteAuditSerializer(serializers.ModelSerializer):
+    """An audit result.
+
+    ``checks`` carries every measurement with what was found and how to fix
+    it, and ``judged`` says whether a model saw the page at all -- because an
+    audit that ran its measured half and lost the model call is still a
+    useful result, and a reader is entitled to know which they have.
+
+    The submitted email is never echoed back. It arrived from an anonymous
+    form and the result is shared by link, so returning it would publish an
+    address to whoever the link reaches.
+    """
+
+    id = serializers.UUIDField(source="public_id", read_only=True)
+    band = serializers.CharField(read_only=True)
+    failed_checks = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WebsiteAudit
+        fields = [
+            "id",
+            "url",
+            "final_url",
+            "domain",
+            "status",
+            "error_reason",
+            "overall_score",
+            "band",
+            "scores",
+            "checks",
+            "failed_checks",
+            "performance",
+            "recommendations",
+            "notes",
+            "what_they_sell",
+            "who_its_for",
+            "confidence",
+            "judged",
+            "page_title",
+            "page_description",
+            "fetched_at",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    @extend_schema_field({"type": "array", "items": {"type": "object"}})
+    def get_failed_checks(self, obj: WebsiteAudit) -> list[dict]:
+        return obj.failed_checks
 
 
 class ResearchResetSerializer(serializers.Serializer):

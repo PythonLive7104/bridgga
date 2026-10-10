@@ -19,8 +19,10 @@ and contact-quality statuses, CSV/XLSX lead import, prospect discovery with
 Postgres full-text and trigram search, the buying-signal engine with its six
 deterministic detectors and one grounded AI interpreter, the opportunity score
 with configurable weights and a per-component explanation, and the research
-agent with the evidence-verified reason-to-contact. Next: the website sales
-audit. No campaigns yet.
+agent with the evidence-verified reason-to-contact, and the website sales
+audit -- which runs for anybody, with no account, at
+`/tools/website-audit`. Next: the onboarding wizard, and then Phase 3.
+No campaigns yet.
 
 ---
 

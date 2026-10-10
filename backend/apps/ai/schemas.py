@@ -383,6 +383,75 @@ class ProspectResearch(StrictModel):
     )
 
 
+class AuditDimension(StrEnum):
+    """The scored dimensions of PRD section 49."""
+
+    VALUE_PROPOSITION = "value_proposition"
+    ICP_CLARITY = "icp_clarity"
+    CONVERSION = "conversion"
+    CTA = "cta"
+    TRUST = "trust"
+    PRICING_CLARITY = "pricing_clarity"
+    SEO = "seo"
+    AEO = "aeo"
+
+
+class Effort(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class AuditRecommendation(StrictModel):
+    """One thing to change, with enough on it to decide whether to bother.
+
+    ``impact`` and ``effort`` together are what turn a list of suggestions
+    into an order of work. A recommendation without them is a wish.
+    """
+
+    title: str = Field(max_length=120, description="The change, as an instruction.")
+    detail: str = Field(
+        default="",
+        max_length=600,
+        description="Why it matters here specifically, referring to what is on the page.",
+    )
+    dimension: AuditDimension
+    impact: Confidence = Field(default=Confidence.MEDIUM, description="How much it would move.")
+    effort: Effort = Field(default=Effort.MEDIUM, description="How much work it is.")
+
+
+class WebsiteAuditJudgement(StrictModel):
+    """The part of a website audit that cannot be measured (PRD section 49).
+
+    Three scores and the recommendations. Everything else in the audit --
+    SEO, AEO, calls to action, trust markers, pricing clarity -- is counted
+    from the HTML by ``apps.intelligence.audit_checks`` and never asked of a
+    model, because a number nobody can reproduce is a number nobody can act
+    on.
+    """
+
+    what_they_sell: str = Field(
+        default="",
+        max_length=300,
+        description="What the page communicates that this company sells, in its own terms.",
+    )
+    who_its_for: str = Field(
+        default="",
+        max_length=300,
+        description="Who the page says it is for. Empty if the page does not say.",
+    )
+
+    value_proposition_score: int = Field(ge=0, le=100)
+    value_proposition_note: str = Field(default="", max_length=600)
+    icp_clarity_score: int = Field(ge=0, le=100)
+    icp_clarity_note: str = Field(default="", max_length=600)
+    conversion_score: int = Field(ge=0, le=100)
+    conversion_note: str = Field(default="", max_length=600)
+
+    recommendations: list[AuditRecommendation] = Field(default_factory=list, max_length=8)
+    confidence: Confidence = Confidence.MEDIUM
+
+
 class ReplyCategory(StrEnum):
     """The twelve labels in PRD section 42."""
 

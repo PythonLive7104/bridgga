@@ -211,6 +211,7 @@ class CompanyProfile(AIEditableModel):
 # Re-exported so ``from apps.intelligence.models import ICP`` works and Django's
 # app registry discovers the model. It lives in its own module because reading a
 # website and deciding who to sell to are different subjects.
+from apps.intelligence.audit_models import AuditStatus, WebsiteAudit  # noqa: E402
 from apps.intelligence.country_models import (  # noqa: E402
     Channel,
     CountryProfile,
@@ -225,6 +226,7 @@ from apps.intelligence.research_models import (  # noqa: E402
 
 __all__ = [
     "ICP",
+    "AuditStatus",
     "Channel",
     "CompanyProfile",
     "CountryProfile",
@@ -235,5 +237,6 @@ __all__ = [
     "ProspectResearch",
     "ResearchStatus",
     "SnapshotStatus",
+    "WebsiteAudit",
     "WebsiteSnapshot",
 ]

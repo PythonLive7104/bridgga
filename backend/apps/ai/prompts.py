@@ -28,6 +28,7 @@ from apps.ai.schemas import (
     ProspectResearch,
     ReplyClassification,
     SignalInterpretation,
+    WebsiteAuditJudgement,
 )
 
 #: Version of the standing rules below.
@@ -364,6 +365,55 @@ Specific guidance:
   not "The website has been updated with new product information".
 - Set `confidence` to `low` when the change is suggestive rather than
   explicit, and say what is missing in `why_it_matters`.
+""",
+    )
+)
+
+
+WEBSITE_AUDIT = register(
+    Prompt(
+        name="website_audit",
+        version=1,
+        # Standard tier. This is the free tool a stranger meets first
+        # (section 17), so it runs for anybody who pastes a URL and its
+        # volume is unbounded -- the same reasoning that put research here
+        # rather than on the advanced tier.
+        tier=Tier.STANDARD,
+        output_schema=WebsiteAuditJudgement,
+        max_output_tokens=3_000,
+        instructions="""You are auditing one web page for the business that owns it. You are given
+the page's own words and a list of things that have **already been measured**
+from its HTML.
+
+Judge only the three things that cannot be counted:
+
+- `value_proposition_score`: can a first-time visitor tell what is being sold
+  and what they would get out of it, from the first screen alone? Score the
+  clarity of the promise, not how impressive the product sounds.
+- `icp_clarity_score`: is it obvious who this is for? A page that says "for
+  everyone" or names no audience at all is unclear, however polished.
+- `conversion_score`: does the page lead somewhere? Judge the path from
+  landing to action as a whole -- whether the next step is obvious, close at
+  hand, and worth taking given what the page has said by that point.
+
+Specific guidance:
+
+- **Never contradict a measurement.** The findings given are facts about the
+  HTML. If they say three calls to action were found, do not say there are
+  none, and do not recommend adding one.
+- **Never recommend something the measurements show is already done.** This is
+  the fastest way to lose a reader who knows their own site.
+- `what_they_sell` and `who_its_for` describe what the *page says*, in the
+  page's own terms. Leave `who_its_for` empty if the page does not say -- an
+  empty field is itself the finding that ICP clarity is poor.
+- Recommendations are instructions, specific to this page: "Move the demo
+  button above the fold, where the headline already promises a 20-minute
+  setup", not "improve your calls to action". Fewer and sharper beats more.
+- Set `impact` and `effort` honestly. A reader works down this list and stops
+  when it stops being worth it, so a high-impact low-effort change that is
+  genuinely available is the most valuable thing you can give them.
+- Scores are out of 100 and should use the range. Reserve 90+ for a page you
+  could not improve on that dimension and below 40 for one that fails it.
 """,
     )
 )

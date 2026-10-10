@@ -64,6 +64,14 @@ urlpatterns = [
         views.CompanyProfileConfirmView.as_view(),
         name="company-profile-confirm",
     ),
+    # Free tools (PRD section 17). Open to anyone, throttled by IP, and the
+    # same endpoint serves the in-product feature for a signed-in caller.
+    path("tools/website-audit", views.WebsiteAuditView.as_view(), name="website-audit"),
+    path(
+        "tools/website-audit/<uuid:public_id>",
+        views.WebsiteAuditDetailView.as_view(),
+        name="website-audit-detail",
+    ),
     # A singleton: one scoring weighting per organization (PRD section 32).
     path("scoring/profile", views.ScoringProfileView.as_view(), name="scoring-profile"),
     path("billing/subscription", views.SubscriptionView.as_view(), name="subscription"),

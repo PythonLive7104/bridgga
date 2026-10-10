@@ -50,6 +50,10 @@ const COLUMNS: { heading: string; links: { href: string; label: string }[] }[] =
       { href: "/use-cases/agency-client-acquisition", label: "Agency growth" },
       { href: "/use-cases/international-market-entry", label: "Market entry" },
       { href: "/tools", label: "Free tools" },
+      // The one free tool that exists so far (PRD section 17). Linked
+      // directly rather than only from the index: it is the page people are
+      // meant to arrive on from search.
+      { href: "/tools/website-audit", label: "Website sales audit" },
     ],
   },
   {
