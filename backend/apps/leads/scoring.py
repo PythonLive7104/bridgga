@@ -406,19 +406,87 @@ def ranges_overlap(left: str, right: str) -> bool | None:
     return first[0] <= second[1] and second[0] <= first[1]
 
 
-def _matches_any(value: str, candidates: list[str]) -> str:
-    """The first candidate that matches ``value`` loosely, or "".
+#: Words that carry no meaning when comparing two industry descriptions.
+_NOISE_WORDS = frozenset(
+    {
+        "and",
+        "the",
+        "for",
+        "with",
+        "their",
+        "that",
+        "who",
+        "run",
+        "running",
+        "inhouse",
+        "house",
+        "team",
+        "teams",
+        "business",
+        "businesses",
+        "company",
+        "companies",
+        "service",
+        "services",
+        "solution",
+        "solutions",
+    }
+)
 
-    Substring either way, because "Logistics" should match "Logistics
-    software" and an ICP saying "logistics software" should match a company
-    recorded as "Logistics".
+
+def _singular(word: str) -> str:
+    """Crude singularisation. Enough to make "agency" and "agencies" meet."""
+    if word.endswith("ies") and len(word) > 4:
+        return word[:-3] + "y"
+    if word.endswith(("ses", "xes", "zes", "ches", "shes")):
+        return word[:-2]
+    if word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def significant_words(text: str) -> set[str]:
+    """The words in a description that actually carry its meaning."""
+    words = re.findall(r"[a-z0-9]+", (text or "").lower())
+    return {_singular(word) for word in words if len(word) > 2} - _NOISE_WORDS
+
+
+#: How much of the shorter description must be present in the longer one for
+#: two industries to count as the same. A judgement: lower starts matching any
+#: two things that share the word "agency".
+MATCH_THRESHOLD = 0.6
+
+
+def _matches_any(value: str, candidates: list[str]) -> str:
+    """The first candidate that describes the same thing as ``value``, or "".
+
+    Compared word by word rather than as substrings, which is the fix for a
+    failure found on real data: an ICP reading "Digital marketing agencies
+    (paid media/performance)" scored 0.00 against a company recorded as
+    "Digital marketing agency" -- an exact conceptual match, defeated by a
+    plural and a parenthetical. ICP fit is a quarter of the opportunity
+    score, so that one `s` quietly took 25 points off every prospect the
+    customer most wanted to see.
+
+    A match is a subset of significant words, or enough overlap to be the
+    same subject. Still deliberately blunt: the customer can edit the ICP,
+    and a matcher that tried to be clever would be wrong in ways nobody could
+    predict from the text in front of them.
     """
-    target = (value or "").strip().lower()
+    target = significant_words(value)
     if not target:
         return ""
+
     for candidate in candidates:
-        text = str(candidate).strip().lower()
-        if text and (text in target or target in text):
+        words = significant_words(str(candidate))
+        if not words:
+            continue
+        shared = target & words
+        if not shared:
+            continue
+        if shared == target or shared == words:
+            return str(candidate)
+        if len(shared) / min(len(target), len(words)) >= MATCH_THRESHOLD:
             return str(candidate)
     return ""
 
@@ -941,6 +1009,7 @@ __all__ = [
     "EMAIL_STATUS_VALUE",
     "GROWTH_SIGNALS",
     "INTENT_SIGNALS",
+    "MATCH_THRESHOLD",
     "SCORERS",
     "STALE_CONFIDENCE_FACTOR",
     "ComponentScore",
@@ -952,4 +1021,5 @@ __all__ = [
     "score_lead",
     "score_organization_leads",
     "score_prospect",
+    "significant_words",
 ]

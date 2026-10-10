@@ -437,6 +437,54 @@ def test_an_unreadable_icp_range_is_skipped_rather_than_failed(
     assert fit.value == 1.0
 
 
+@pytest.mark.parametrize(
+    ("industry", "icp_industries", "matches"),
+    [
+        # The failure this was written for, found on real data: an ICP the
+        # agent wrote as "Digital marketing agencies (paid media/performance)"
+        # scored 0.00 against a company recorded as "Digital marketing
+        # agency". An exact conceptual match, defeated by a plural and a
+        # parenthetical -- and ICP fit is a quarter of the whole score.
+        ("Digital marketing agency", ["Digital marketing agencies (paid media/performance)"], True),
+        ("Performance marketing agency", ["Digital marketing agencies (paid media)"], True),
+        ("Logistics software", ["Logistics"], True),
+        ("Logistics", ["Logistics software"], True),
+        # Still blunt where it should be. Sharing one generic word is not a
+        # match, or every agency on earth matches every ICP that says agency.
+        ("Advertising agency", ["Digital marketing agencies (paid media/performance)"], False),
+        ("E-commerce retail", ["Digital marketing agencies"], False),
+        ("Mining", ["Logistics"], False),
+    ],
+)
+def test_industry_matching_survives_how_a_model_writes_english(
+    organization: Any, industry: str, icp_industries: list[str], matches: bool
+) -> None:
+    """The ICP is written by a model in prose; the company comes from a list.
+
+    Neither side controls the other's wording, so comparing whole strings
+    means a quarter of the score turns on whether a sentence happened to be
+    pluralised.
+    """
+    with tenant_context(organization=organization):
+        ICP.objects.create(
+            organization=organization,
+            name="Test ICP",
+            industries=icp_industries,
+            is_active=True,
+        )
+    company, _ = company_services.upsert_company(
+        organization=organization,
+        name="Candidate",
+        website="https://candidate.example",
+        industry=industry,
+        source="test",
+    )
+
+    fit = component(score_prospect(company), ScoreComponent.ICP_FIT)
+
+    assert (fit.value == 1.0) is matches, fit.reason
+
+
 def test_a_company_matching_nothing_scores_zero_on_fit(organization: Any, icp: ICP) -> None:
     other, _ = company_services.upsert_company(
         organization=organization,
